@@ -10,28 +10,33 @@ import logging
 import math
 
 class Particle():
-    def __init__(self, world, name, init_y, init_x,
+    def __init__(self, world, name, local_map, init_y, init_x,
                  angle, speed, bounce=True, 
-                 color='r', marker='o', markersize=7):
+                 color=12, ymarkersize=3, xmarkersize=3):
 
         self.steps = 0
         self.world = world
-        self.y = init_y 
-        self.x = init_x
         self.name = name
         self.angle = angle
         self.speed = speed
         self.color = color
-        self.alive = True
         self.bounce = bounce
+        # always add positive number to size
+        self.ymarkersize = abs(ymarkersize)
+        self.xmarkersize = abs(xmarkersize)
+        self.y = init_y
+        self.x = init_x
+        self.alive = True
+        self.local_map = local_map
+        self.step(0)
 
-        self.points = self.world.ax.plot([self.x], [self.y],
-                                    linestyle='None', 
-                                    marker=marker, c=self.color, 
-                                    markersize=markersize)[0]
-
-    def wall_bounce(self):
-        self.angle+=np.sign(self.angle)*40
+    def wall_bounce(self, hit_wall):
+        if hit_wall:
+            # some agents will bounce off of the walls, others should die
+            if self.bounce:
+                self.angle+=np.sign(self.angle)*40
+            else:
+                self.alive = False
 
     def step(self, timestep):
         # (meters/second) * second
@@ -39,26 +44,49 @@ class Particle():
         rads = np.deg2rad(self.angle) 
         newy = self.y + self.speed*np.sin(rads)*timestep
         newx = self.x + self.speed*np.cos(rads)*timestep
-
-        self.y,self.x,bounce = self.world.collide_with_walls(newy,newx)
-        if bounce:
-            if self.bounce:
-                self.wall_bounce()
-            else:
-                self.alive = False
-
-        self.steps +=1
-        if self.alive: 
-            self.points.set_data([self.x], [self.y])
+        self.y,self.x,newyplus,newxplus = self.collide_with_walls(newy,newx)
+        if self.alive:
+            y = range(int(self.y), newyplus)
+            x = range(int(self.x), newxplus)
+            inds = np.array([(yy,xx) for yy in y for xx in x]).T
+            self.local_map[inds[0,:], inds[1,:]] = self.color
+            self.steps +=1
         return self.alive
 
+    def collide_with_walls(self,newy,newx):
+        hit_wall = False
+        # markersize is always positive so only need to check x/ysize
+        newyplus = int(newy+self.ymarkersize)
+        newxplus = int(newx+self.xmarkersize)
+        # leading edge hit
+        if (newyplus>= self.world.ysize-1):
+            newyplus = self.world.ysize-1
+        if (newxplus>= self.world.xsize-1):
+            newxplus = self.world.xsize-1
+        if (newy>=self.world.ysize-1):
+            newy = float(self.world.ysize-1)
+            hit_wall = True
+        if (newx>=self.world.xsize-1):
+            newx = float(self.world.xsize-1)
+            hit_wall = True
+
+        if (newy <= 0):
+            newy = 0.0
+            hit_wall = True
+        if (newx <= 0):
+            newx = 0.0
+            hit_wall = True
+        self.wall_bounce(hit_wall)
+        return newy, newx, newyplus, newxplus
+
+ 
 
 class RoomEnv():
     def __init__(self, obstacle_type='walkers', ysize=128, xsize=100, seed=10, 
                  timestep=1,collision_distance=2):
         # TODO - what if episode already exists in savedir
         self.car_every = 10
-        self.safezone = collision_distance*2
+        self.safezone = collision_distance*3
         self.steps = 0
         self.obstacle_type = obstacle_type
         self.ysize = ysize
@@ -72,17 +100,61 @@ class RoomEnv():
         self.action_space = [np.linspace(-1, 1, 5), np.linspace(0, self.max_speed, 4)]
         self.collision_distance=collision_distance
         self.rdn = np.random.RandomState(seed)
+        self.room_map = np.zeros((self.ysize, self.xsize), np.uint8)
 
     def get_data_from_fig(self):
         data = np.fromstring(self.fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
         data = data.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
         return data
 
+    def configure_cars(self):
+        self.car_ysize=2
+        median1 = (self.ysize/2)-(self.safezone/2)
+        median2 = (self.ysize/2)+(self.safezone/2)
+
+        self.human_markers = np.zeros_like(self.room_map)
+        self.human_markers[median1,:] = 255
+        self.human_markers[median2,:] = 255
+
+        self.human_markers[self.safezone,:] = 255
+        self.human_markers[self.ysize-self.safezone,:] = 255
+
+        lanes = list(np.arange(self.safezone+1, median1-self.car_ysize, self.car_ysize))
+        lanes.extend(list(np.arange(median2+1, self.ysize-self.safezone-self.car_ysize, self.car_ysize)))
+        
+        cars = {
+                'truck':{'color':45, 'speed':np.linspace(.2,.7,10),    'xsize':9, 'angles':[], 'lanes':[]},
+                'wagon':{'color':85, 'speed':np.linspace(1.,2.7,10),  'xsize':7, 'angles':[], 'lanes':[]},
+                'tesla':{'color':100, 'speed':np.linspace(1,5.7,10),    'xsize':4, 'angles':[], 'lanes':[]},
+                'sport':{'color':130, 'speed':np.linspace(3.2,4.7,10),  'xsize':5, 'angles':[], 'lanes':[]},
+                'sedan':{'color':155, 'speed':np.linspace(1.2,3.3,10), 'xsize':6, 'angles':[], 'lanes':[]},
+                }
+
+
+        self.rdn.shuffle(lanes)
+        lanes = list(lanes)
+        assign = True
+        while assign:
+            for name, car in cars.iteritems():
+                if not len(lanes):
+                    assign=False
+                    break
+                if not self.rdn.randint(1000)%2:
+                    angle = 0.0
+                else:
+                    angle = 180
+                cars[name]['lanes'].append(lanes.pop())
+                cars[name]['angles'].append(angle)
+
+        self.cars = cars
+
+
     def reset(self):
         plt.close()
         # reset environment
         plt.ion()
         self.fig, self.ax = plt.subplots(1,1)
+        self.shown = self.ax.matshow(self.room_map, vmin=0, vmax=255)
         self.ax.set_aspect('equal')
         self.ax.set_ylim(0,self.ysize)
         self.ax.set_xlim(0,self.xsize)
@@ -96,53 +168,58 @@ class RoomEnv():
         goal_y = float(self.rdn.randint(0,self.ysize))
         goal_x = float(self.rdn.randint(0,self.xsize))
         self.reward = 0
-        
-        self.goal = Particle(world=self, name='goal', init_y=goal_y, init_x=goal_x, 
+        self.goal_map = np.zeros((self.ysize, self.xsize), np.uint8)
+        self.robot_map = np.zeros((self.ysize, self.xsize), np.uint8)
+        self.goal = Particle(world=self, name='goal', 
+                              local_map=self.goal_map,
+                              init_y=goal_y, init_x=goal_x, 
                               angle=0, speed=0.0, bounce=False, 
-                              color='r', marker='x')
+                              ymarkersize=1,xmarkersize=1,
+                              color=254)
 
-        self.robot = Particle(world=self, name='robot', 
+        self.robot = Particle(world=self,  name='robot',  
+                              local_map=self.robot_map,
                               init_y=init_y, init_x=init_x, 
                               angle=0, speed=0.1, bounce=False, 
-                              color='g', marker='o')
+                              xmarkersize=2, ymarkersize=2,
+                              color=200)
 
+        self.configure_cars()
+        self.human_markers+=self.goal_map
         self.obstacles = {}
         self.cnt = 0
+        # start a few cars
         if self.obstacle_type == 'frogger':
-            [self.step([0,0]) for i in range(self.car_every*5)]
-        if self.obstacle_type == 'walker':
-            self.add_walker_obstacles()
+            [self.step([0,0]) for i in range(self.xsize)]
         self.steps = 0
-
-        state = self.get_data_from_fig()
+        #state = self.get_data_from_fig()
+        state = self.goal_map+self.robot_map+self.room_map
         return state
 
-    def add_frogger_obstacles(self):
-        cars ={'blue':1.5, 'cornflowerblue':.5, 'teal':2}
-        for color, speed in cars.iteritems():
-            num_cars = self.rdn.randint(1,1+self.ysize*.02)
-            median1 = (self.ysize/2)-(self.safezone/2)
-            median2 = (self.ysize/2)+(self.safezone/2)
+    def add_frogger_obstacles(self, level=1):
+        # 1.4 is pretty easy
+        # 1.2 is much harder
+        for name, car in self.cars.iteritems():
+            pp = self.rdn.poisson(car['xsize']*1.7, len(car['lanes']))
+            print(pp)
+            for p, angle, lane in zip(pp, car['angles'], car['lanes']):
+                if p<car['xsize']+level:
+                    if int(angle) == 0:
+                        init_x = 0
+                    else:
+                        init_x = self.xsize-1-car['xsize']
 
-            one_layer = self.rdn.randint(self.safezone, median1, num_cars)
-            two_layer = self.rdn.randint(median2,self.ysize-self.safezone,num_cars)
-
-            for n in one_layer:
-                self.obstacles[self.cnt] = Particle(world=self, name=n, 
-                                             init_y=n, 
-                                             init_x=0, 
-                                             angle=0.0, speed=speed,
-                                             bounce=False,
-                                             color=color, marker='s', markersize=5) 
-                self.cnt +=1
-            for n in two_layer:
-                self.obstacles[self.cnt] = Particle(world=self, name=n, 
-                                             init_y=n, 
-                                             init_x=self.xsize-1, 
-                                             angle=180, speed=speed,
-                                             bounce=False,
-                                             color=color, marker='s', markersize=5) 
-                self.cnt +=1
+                    self.obstacles[self.cnt] = Particle(world=self, name=self.cnt, 
+                                                 local_map=self.room_map,
+                                                 init_y=lane, 
+                                                 init_x=init_x, 
+                                                 angle=angle, 
+                                                 speed=self.rdn.choice(car['speed']),
+                                                 bounce=False,
+                                                 color=car['color'],
+                                                 ymarkersize=self.car_ysize,
+                                                 xmarkersize=car['xsize']) 
+                    self.cnt +=1
 
 
 
@@ -153,7 +230,7 @@ class RoomEnv():
                                          init_x=0, 
                                          angle=0, speed=1.5,
                                          bounce=False,
-                                         color='b', marker='s', markersize=10) 
+                                         color=12)
             self.cnt +=1
         for n in self.rdn.randint(self.ysize/2,self.ysize,self.ysize/4):
             self.obstacles[self.cnt] = Particle(world=self, name=n, 
@@ -161,7 +238,7 @@ class RoomEnv():
                                          init_x=self.xsize-1, 
                                          angle=180, speed=1.5,
                                          bounce=False,
-                                         color='b', marker='s', markersize=10) 
+                                         color=34) 
             self.cnt +=1
 
 
@@ -173,7 +250,7 @@ class RoomEnv():
             ds.append(dis)
             if dis < self.collision_distance:
                 print("robot collided with obstacle {} at distance of {} m".format(o.name,dis))
-                self.robot.alive = False
+                #self.robot.alive = False
 
     def check_goal_progress(self):
         goal_dis = np.sqrt((self.goal.y-self.robot.y)**2 + (self.goal.x-self.robot.x)**2)
@@ -181,26 +258,11 @@ class RoomEnv():
             print("reached goal at distance of {} m".format(goal_dis))
             self.robot.alive = False
  
-    def collide_with_walls(self,newy,newx):
-        bounce = False
-        if (newy >= self.ysize-1):
-            # TODO bounce smarter in the correct direction
-            newy = float(self.ysize-1)
-            bounce = True
-        if (newx >= self.xsize-1):
-            newx = float(self.xsize-1)
-            bounce = True
-        if (newy <= 0):
-            newy = 0.0
-            bounce = True
-        if (newx <= 0):
-            newx = 0.0
-            bounce = True
-        return newy, newx, bounce
- 
+
     def step(self, action):
         ''' step agent '''
-        print('step', self.steps)
+        self.room_map *= 0
+        self.robot_map *= 0
         assert(len(action)==2)
         self.steps +=1
         dead_obstacles = []
@@ -212,22 +274,22 @@ class RoomEnv():
         else:
             self.robot.alive = False
 
-        for d in dead_obstacles: 
-            self.obstacles[d].points.remove()
-            del self.obstacles[d].points
-            del self.obstacles[d]
-
+        for n in dead_obstacles:
+            del self.obstacles[n]
         self.robot.angle = action[0]
         self.robot.speed = action[1]
         self.robot.step(self.timestep)
-        next_state = self.get_data_from_fig()
+        #next_state = self.get_data_from_fig()
+        print('goal',np.argmax(self.goal_map))
+        state = self.room_map+self.robot_map+self.goal_map
         self.check_for_collisions()
         self.check_goal_progress()
         if not self.steps%self.car_every:
             self.add_frogger_obstacles()
-        return next_state, self.reward, not self.robot.alive, ''
+        return state, self.reward, not self.robot.alive, ''
 
     def render(self):
+        self.shown.set_data(self.room_map+self.human_markers+self.robot_map)
         plt.show()
         plt.pause(.0001)
       
@@ -268,7 +330,7 @@ class BaseAgent():
             # make gif
             Popen(cmd.split(' '))
 
-    def get_action(self,state):
+    def get_action(self, state):
         goal_y, goal_x = self.env.goal.y, self.env.goal.x
         dy = goal_y-self.env.robot.y
         dx = goal_x-self.env.robot.x
@@ -297,6 +359,6 @@ class BaseAgent():
 if __name__ == '__main__':
     #env = RoomEnv(obstacle_type='walkers')
     env = RoomEnv(obstacle_type='frogger')
-    ba = BaseAgent(env, do_plot=False, n_episodes=6)
+    ba = BaseAgent(env, do_plot=True, n_episodes=2)
     ba.run()
 
