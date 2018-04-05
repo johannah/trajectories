@@ -14,14 +14,17 @@ import os
 from imageio import imread, imwrite
 from PIL import Image
 
-kwargs = {'num_workers': 1, 'pin_memory': True}
 
 class FroggerDataset(Dataset):
     def __init__(self, root_dir, transform=None, limit=None):
         self.root_dir = root_dir
         self.transform = transform
-        self.indexes = glob(os.path.join(self.root_dir, '*.png'))
-        if limit is not None: 
+        search_path = os.path.join(self.root_dir, '*.png')
+        self.indexes = glob(search_path)
+        if not len(self.indexes):
+            print("Error no files found at {}".format(search_path))
+            raise
+        if limit is not None:
             self.indexes = self.indexes[:min(len(self.indexes), limit)]
 
     def __len__(self):
@@ -34,6 +37,7 @@ class FroggerDataset(Dataset):
         reward = int(img_name.split('_')[-1].split('.png')[0])
         if self.transform is not None:
             image = self.transform(image)
+
         return image,reward
 
 
@@ -71,12 +75,13 @@ def train(epoch, do_checkpoint):
                 time.time() - start_time
             )
     if do_checkpoint:
-        state = {'epoch':epoch, 
-                 'state_dict':model.state_dict(), 
+        state = {'epoch':epoch,
+                 'state_dict':model.state_dict(),
                  'loss':np.asarray(train_loss).mean(0),
-                 'optimizer':opt.state_dict(), 
+                 'optimizer':opt.state_dict(),
                  }
-        save_checkpoint(state, model_savepath)
+        save_checkpoint(state, filename=model_savepath)
+
 def test():
     if use_cuda:
         x = Variable(test_data[0][0]).cuda()
@@ -97,7 +102,7 @@ def save_checkpoint(state, is_best=False, filename='model.pkl'):
 
 if __name__ == '__main__':
     import argparse
-    default_base_datadir = '/Users/jhansen/johannah/trajectories/gym_trajectories/envs/saved/'
+    default_base_datadir = 'saved/'
     default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
@@ -134,7 +139,7 @@ if __name__ == '__main__':
        train(i, do_checkpoint=True)
        test()
 
-   
-   
-    
+
+
+
 
