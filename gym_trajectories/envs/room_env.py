@@ -1,5 +1,6 @@
 import matplotlib
 matplotlib.use('TkAgg')
+from glob import glob
 import os
 from subprocess import Popen
 import gym
@@ -8,7 +9,7 @@ import numpy as np
 from IPython import embed
 import logging
 import math
-
+from imageio import imwrite
 lose_reward=-100
 step_reward=-1
 win_reward=100
@@ -107,7 +108,7 @@ def check_state(ry, rx, room_map, goal_map):
 
 
 class RoomEnv():
-    def __init__(self, obstacle_type='walkers', ysize=40, xsize=30, seed=10, 
+    def __init__(self, obstacle_type='walkers', ysize=40, xsize=40, seed=10, 
                  timestep=1,collision_distance=2):
         # TODO - what if episode already exists in savedir
         self.steps = 0
@@ -137,27 +138,29 @@ class RoomEnv():
         data = data.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
         return data
 
-    def configure_cars(self):
+    def configure_cars(self, max_xcarsize):
         self.car_ysize=1
         median1 = (self.ysize/2)-(self.safezone/2)
         median2 = (self.ysize/2)+(self.safezone/2)
 
+        # make stripes around safe spaces
         self.human_markers = np.zeros_like(self.room_map)
-        self.human_markers[median1,:] = 255
-        self.human_markers[median2,:] = 255
-
-        self.human_markers[self.safezone,:] = 255
-        self.human_markers[self.ysize-self.safezone,:] = 255
+        s = 0
+        self.human_markers[median1,:] = s
+        self.human_markers[median2,:] = s
+        self.human_markers[self.safezone,:] = s
+        self.human_markers[self.ysize-self.safezone,:] = s
 
         lanes = list(np.arange(self.safezone+1, median1-self.car_ysize, self.car_ysize))
         lanes.extend(list(np.arange(median2+1, self.ysize-self.safezone-self.car_ysize, self.car_ysize)))
         
+        mx = max(max_xcarsize,5)
         cars = {
-                'truck':{'color':45, 'speed':np.linspace(.2,.7,10),    'xsize':9, 'angles':[], 'lanes':[]},
-                'wagon':{'color':85, 'speed':np.linspace(1.,2.7,10),  'xsize':7, 'angles':[], 'lanes':[]},
-                'tesla':{'color':100, 'speed':np.linspace(1,5.7,10),    'xsize':4, 'angles':[], 'lanes':[]},
-                'sport':{'color':130, 'speed':np.linspace(3.2,4.7,10),  'xsize':5, 'angles':[], 'lanes':[]},
-                'sedan':{'color':155, 'speed':np.linspace(1.2,3.3,10), 'xsize':6, 'angles':[], 'lanes':[]},
+                'truck':{'color':45, 'speed':np.linspace(.2,.7,10),    'xsize':mx, 'angles':[], 'lanes':[]},
+                'wagon':{'color':85, 'speed':np.linspace(1.,2.7,10),   'xsize':max(mx-1,3), 'angles':[], 'lanes':[]},
+                'tesla':{'color':100, 'speed':np.linspace(1,5.7,10),   'xsize':max(mx-2,3), 'angles':[], 'lanes':[]},
+                'sport':{'color':130, 'speed':np.linspace(3.2,4.7,10), 'xsize':max(mx-3,3), 'angles':[], 'lanes':[]},
+                'sedan':{'color':155, 'speed':np.linspace(1.2,3.3,10), 'xsize':max(mx-4,3), 'angles':[], 'lanes':[]},
                 }
 
 
@@ -180,24 +183,19 @@ class RoomEnv():
 
 
     def reset(self):
+        max_xcarsize = int(self.xsize*.15)
+        self.plotted = False
         plt.close()
-        # reset environment
-        plt.ion()
-        self.fig, self.ax = plt.subplots(1,1)
-        self.shown = self.ax.matshow(self.room_map, vmin=0, vmax=255)
-        self.ax.set_aspect('equal')
-        self.ax.set_ylim(0,self.ysize)
-        self.ax.set_xlim(0,self.xsize)
-        
+       
         # robot shape
         yrsize,xrsize=2,2
         self.safezone = yrsize*3
         init_ys = [self.rdn.randint(yrsize,self.safezone-yrsize), 
-                   self.rdn.randint(self.ysize-self.safezone+yrsize, self.ysize-1-yrsize),
+                   self.rdn.randint(self.ysize-self.safezone+yrsize, self.ysize-yrsize),
                    self.rdn.randint((self.ysize/2)-self.safezone+yrsize, 
                                     (self.ysize/2)+self.safezone-yrsize)]
         init_y = float(self.rdn.choice(init_ys))
-        init_x = float(self.rdn.randint(0,self.xsize))
+        init_x = float(self.rdn.randint(max_xcarsize,self.xsize-max_xcarsize))
         
         self.robot_map = np.zeros((self.ysize, self.xsize), np.uint8)
 
@@ -208,25 +206,24 @@ class RoomEnv():
                               xmarkersize=xrsize, ymarkersize=yrsize,
                               color=200)
 
-        goal_y = float(self.rdn.randint(0,self.ysize))
-        goal_x = float(self.rdn.randint(0,self.xsize))
+        goal_y = float(self.rdn.randint(2,self.ysize-2))
+        goal_x = float(self.rdn.randint(2,self.xsize-2))
         self.goal_map = np.zeros((self.ysize, self.xsize), np.uint8)
         self.goal = Particle(world=self, name='goal', 
                               local_map=self.goal_map,
                               init_y=goal_y, init_x=goal_x, 
-                              angle=0, speed=0.0, bounce=False, 
+                              angle=0, speed=0.0, bounce=True, 
                               ymarkersize=1,xmarkersize=1,
                               color=254)
 
 
  
-        self.configure_cars()
-        self.human_markers+=self.goal_map
+        self.configure_cars(max_xcarsize)
         self.obstacles = {}
         self.cnt = 0
         # initialize map
         [self.step_obstacles() for i  in range(self.max_steps)]
-        self.room_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.float32)
+        self.room_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
         # make all of the cars
         for t in range(self.max_steps):
             self.step_obstacles()
@@ -235,6 +232,8 @@ class RoomEnv():
         # set steps to zero for the agent
         self.steps = 0
         state = self.goal_map+self.robot_map+self.room_maps[self.steps]
+        if not self.robot.alive:
+            embed()
         return state
 
     def step_obstacles(self):
@@ -249,7 +248,7 @@ class RoomEnv():
             del self.obstacles[n]
         self.add_frogger_obstacles()
       
-    def add_frogger_obstacles(self, level=4):
+    def add_frogger_obstacles(self, level=3):
         # 1.4 is pretty easy
         # 1.2 is much harder
         for name, car in self.cars.iteritems():
@@ -284,8 +283,6 @@ class RoomEnv():
 
     def step(self, action):
         ''' step agent '''
-
-        print('alive', self.robot.alive)
         if self.robot.alive:
             assert(len(action)==2)
             # room_maps is max_steps long
@@ -295,7 +292,6 @@ class RoomEnv():
             self.robot.speed = action[1]
             alive = self.robot.step(self.timestep)
             ry, rx = np.where(self.robot_map>0)
-            print('robot', ry,rx,alive,self.robot.alive)
             state = room_map+self.robot_map+self.goal_map
             game_over,reward=check_state(ry,rx,room_map,self.goal_map)
             if game_over:
@@ -309,20 +305,32 @@ class RoomEnv():
             if not self.robot.alive:
                 print('reward: {}'.format(reward))
             return state, reward, not self.robot.alive, ''
+        else:
+            print('robot has died')
+            raise
 
     def render(self):
-        self.shown.set_data(self.room_maps[self.steps]+self.human_markers+self.robot_map)
+        if not self.goal_map.sum() > 0:
+            print("no goal")
+            embed()
+        if not self.plotted:
+            # reset environment
+            plt.ion()
+            self.fig, self.ax = plt.subplots(1,1)
+            self.shown = self.ax.matshow(self.room_map, vmin=0, vmax=255)
+            self.ax.set_aspect('equal')
+            self.ax.set_ylim(0,self.ysize)
+            self.ax.set_xlim(0,self.xsize)
+ 
+        self.shown.set_data(self.room_maps[self.steps]+self.robot_map+self.goal_map)
         plt.show()
         plt.pause(.0001)
       
 class BaseAgent():
-    def __init__(self, env, do_plot=False, do_save_figs=False, save_fig_every=10,
-                       do_make_gif=False, save_path='saved', n_episodes=10, seed=133):
+    def __init__(self, do_plot=False, do_save_figs=False, save_fig_every=3,
+                       do_make_gif=False, save_path='saved', n_episodes=10, 
+                       seed=133, train=False):
 
-        self.rdn = np.random.RandomState(seed)
-        self.env = env
-        self.episodes = 0
-        self.n_episodes = n_episodes
         self.do_plot = do_plot
         self.do_save_figs = do_save_figs
         self.save_fig_every=save_fig_every
@@ -330,13 +338,34 @@ class BaseAgent():
         self.do_make_gif = do_make_gif
 
         if self.do_save_figs:
-            self.img_path = os.path.join(self.save_path, 'imgs') 
+            if train:
+                self.img_path = os.path.join(self.save_path, 'imgs_train') 
+            else:
+                self.img_path = os.path.join(self.save_path, 'imgs_test') 
+
             if not os.path.exists(self.img_path):
                 os.makedirs(self.img_path)
-            self.plot_path = os.path.join(self.img_path, 'episode_%04d_frame_%05d.png')
+            self.plot_path = os.path.join(self.img_path, 'episode_%06d_frame_%05d_reward_%d.png')
             if self.do_make_gif:
-                self.gif_path = os.path.join(self.img_path, 'episode_%04d_frames_%05d.gif')
-
+                self.gif_path = os.path.join(self.img_path, 'episode_%06d_frames_%05d.gif')
+        # get last img epsidoe - in future should look for last in model or something
+        try:
+            past = glob(os.path.join(self.img_path, 'episode_*.png'))
+            # get name of episode
+            eps = [int(os.path.split(p)[1].split('_')[1]) for p in past]
+            last_episode = max(eps)
+        except Exception, e:
+            last_episode = 0
+        self.episodes = last_episode
+        # note - need new seed for randomness
+        ep_seed = seed+last_episode
+        print('-------------------------------------------------------------------------')
+        print('starting from episode: {} with seed {}'.format(last_episode, ep_seed))
+        raw_input('press any key to continue or ctrl+c to exit')
+        self.rdn = np.random.RandomState(ep_seed)
+        self.env = RoomEnv(obstacle_type='frogger',seed=ep_seed+1)
+        self.n_episodes = self.episodes+n_episodes
+ 
     def run(self):
         while self.episodes < self.n_episodes:
             if self.do_make_gif and (self.episodes==self.n_episodes-1):
@@ -352,7 +381,7 @@ class BaseAgent():
             # make gif
             Popen(cmd.split(' '))
 
-    def get_action(self, state):
+    def get_goal_action(self, state):
         goal_y, goal_x = self.env.goal.y, self.env.goal.x
         dy = goal_y-self.env.robot.y
         dx = goal_x-self.env.robot.x
@@ -386,22 +415,29 @@ class BaseAgent():
         state = self.env.reset()
         finished = False
         while not finished:
-            #action = self.get_action(state)
-            action = self.get_random_action(state)
+            action = self.get_goal_action(state)
+            #action = self.get_random_action(state)
             next_state, reward, finished, _ = self.env.step(action)
-            if self.do_plot:
-                self.env.render()
-                if self.do_save_figs:
-                    if not self.steps%self.save_fig_every:
-                        this_plot_path = self.plot_path %(self.episodes, self.steps)
-                        plt.savefig(this_plot_path)
             self.steps+=1
             state = next_state
+            if self.do_plot:
+                self.env.render()
+            if self.do_save_figs:
+                if not self.steps%self.save_fig_every:
+                    signal = 1 # one step
+                    if finished: # episode over
+                        if reward > 0:
+                            signal = 2 # won
+                        else:
+                            signal = 0 # died
+
+                    this_plot_path = self.plot_path %(self.episodes, self.steps, signal)
+                    imwrite(this_plot_path, state)
+ 
         self.episodes+=1
 
 if __name__ == '__main__':
     #env = RoomEnv(obstacle_type='walkers')
-    env = RoomEnv(obstacle_type='frogger')
-    ba = BaseAgent(env, do_plot=True, n_episodes=2)
+    ba = BaseAgent(do_plot=False, do_save_figs=True, train=True, n_episodes=20000, seed=415)
     ba.run()
 
