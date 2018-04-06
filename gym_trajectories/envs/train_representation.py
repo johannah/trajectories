@@ -34,6 +34,12 @@ class FroggerDataset(Dataset):
     def __getitem__(self, idx):
         img_name = self.indexes[idx]
         image = imread(img_name)
+        goal_val = 254
+        goal_pixel = np.where(image==goal_val)
+        image[goal_pixel[0]+1,goal_pixel[1]] = goal_val
+        image[goal_pixel[0]-1,goal_pixel[1]] = goal_val
+        image[goal_pixel[0],goal_pixel[1]+1] = goal_val
+        image[goal_pixel[0],goal_pixel[1]-1] = goal_val
         image = image[:,:,None].astype(np.float32)
         reward = int(img_name.split('_')[-1].split('.png')[0])
         if self.transform is not None:
@@ -142,14 +148,17 @@ if __name__ == '__main__':
     test_data = list(data_test_loader)
 
 
+
     for i in xrange(100):
         vmodel, opt = train(i,vmodel,opt,data_train_loader,
                             do_checkpoint=True,do_use_cuda=use_cuda,
                             model_savepath=args.model_savepath)
+        idx = np.random.randint(0, len(test_data))
         if use_cuda:
-            x_test = Variable(test_data[0][0]).cuda()
+            x_test = Variable(test_data[idx][0]).cuda()
         else:
-            x_test = Variable(test_data[0][0])
+            x_test = Variable(test_data[idx][0])
+
         test(x_test,vmodel,nr_logistic_mix,save_img_path='test.png')
 
 
