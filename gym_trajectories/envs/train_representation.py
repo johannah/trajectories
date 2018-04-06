@@ -59,7 +59,7 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_sav
 
         optimizer.zero_grad()
 
-        x_tilde, z_e_x, z_q_x = model(x)
+        x_tilde, z_e_x, z_q_x, latents = model(x)
         z_q_x.retain_grad()
 
         #loss_1 = F.binary_cross_entropy(x_tilde, x)
@@ -92,7 +92,7 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_sav
     return model, optimizer
 
 def test(x,model,nr_logistic_mix,save_img_path=None):
-    x_d, z, _ = model(x)
+    x_d, _, _, latents = model(x)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
     x_cat = torch.cat([x, x_tilde], 0)
     images = x_cat.cpu().data
