@@ -22,7 +22,7 @@ class AutoEncoder(nn.Module):
         super(AutoEncoder, self).__init__()
         self.nr_logistic_mix = nr_logistic_mix
         data_channels_size = 1
-        encoder_output_size = 16
+        encoder_output_size = 8
         num_mixture = 2*self.nr_logistic_mix*data_channels_size+self.nr_logistic_mix
 
         self.encoder = nn.Sequential(
