@@ -41,17 +41,16 @@ class FroggerDataset(Dataset):
         return image,reward
 
 
-def train(epoch, do_checkpoint):
+def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_savepath):
     train_loss = []
-
     for batch_idx, (data, _) in enumerate(train_loader):
         start_time = time.time()
-        if use_cuda:
+        if do_use_cuda:
             x = Variable(data, requires_grad=False).cuda()
         else:
             x = Variable(data, requires_grad=False)
 
-        opt.zero_grad()
+        optimizer.zero_grad()
 
         x_tilde, z_e_x, z_q_x = model(x)
         z_q_x.retain_grad()
@@ -65,7 +64,7 @@ def train(epoch, do_checkpoint):
         # loss_2.backward(retain_graph=True)
         loss_3 = 0 * F.mse_loss(z_e_x, z_q_x.detach())
         # loss_3.backward()
-        opt.step()
+        optimizer.step()
         train_loss.append(to_scalar([loss_1, loss_2]))
         if not batch_idx%10:
             print 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {} Time: {}'.format(
@@ -74,25 +73,22 @@ def train(epoch, do_checkpoint):
                 np.asarray(train_loss).mean(0),
                 time.time() - start_time
             )
+
     if do_checkpoint:
         state = {'epoch':epoch,
                  'state_dict':model.state_dict(),
                  'loss':np.asarray(train_loss).mean(0),
-                 'optimizer':opt.state_dict(),
+                 'optimizer':optimizer.state_dict(),
                  }
         save_checkpoint(state, filename=model_savepath)
+    return model, optimizer
 
-def test():
-    if use_cuda:
-        x = Variable(test_data[0][0]).cuda()
-    else:
-        x = Variable(test_data[0][0])
+def test(x,model,save_img_path=None):
     x_tilde, _, _ = model(x)
-
     x_cat = torch.cat([x, x_tilde], 0)
     images = x_cat.cpu().data
-    save_image(images, './samples_frogger_mnist.png', nrow=8)
-    save_image(images[0,:,:], './one_sample_frogger_mnist.png', nrow=1)
+    if save_img_path is not None:
+        save_image(images, save_img_path, nrow=1)
 
 def save_checkpoint(state, is_best=False, filename='model.pkl'):
     torch.save(state, filename)
@@ -112,32 +108,41 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--model_loadpath', default=None)
 
     args = parser.parse_args()
-    model_savepath = args.model_savepath
     train_data_dir = os.path.join(args.datadir, 'imgs_train')
     test_data_dir =  os.path.join(args.datadir, 'imgs_test')
     use_cuda = args.cuda
 
     if args.model_loadpath is not None:
         if os.path.exists(args.model_loadpath):
-            model = torch.load(args.model_loadpath)
-            opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+            vmodel = torch.load(args.model_loadpath)
+            opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
             opt.load_state_dict(checkpoint['optimizer'])
             print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.model_loadpath))
     else:
         if use_cuda:
-            model = AutoEncoder().cuda()
+            vmodel = AutoEncoder().cuda()
         else:
-            model = AutoEncoder()
+            vmodel = AutoEncoder()
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    train_loader = DataLoader(FroggerDataset(train_data_dir, transform=transforms.ToTensor()), batch_size=64, shuffle=True)
-    test_loader = DataLoader(FroggerDataset(test_data_dir, transform=transforms.ToTensor()), batch_size=32, shuffle=True)
+    data_train_loader = DataLoader(FroggerDataset(train_data_dir, 
+                                   transform=transforms.ToTensor()), 
+                                   batch_size=64, shuffle=True)
+    data_test_loader = DataLoader(FroggerDataset(test_data_dir, 
+                                  transform=transforms.ToTensor()), 
+                                  batch_size=32, shuffle=True)
     test_data = list(test_loader)
     for i in xrange(100):
-       train(i, do_checkpoint=True)
-       test()
+        vmodel, opt = train(i,vmodel,opt,data_train_loader,
+                            do_checkpoint=True,use_cuda=use_cuda,
+                            args.model_savepath)
+        if use_cuda:
+            x_test = Variable(test_data[0][0]).cuda()
+        else:
+            x_test = Variable(test_data[0][0])
+        test(vmodel,x_test)
 
 
 

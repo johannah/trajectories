@@ -315,6 +315,7 @@ class RoomEnv():
             embed()
         if not self.plotted:
             # reset environment
+            self.plotted = True
             plt.ion()
             self.fig, self.ax = plt.subplots(1,1)
             self.shown = self.ax.matshow(self.room_map, vmin=0, vmax=255)
@@ -327,7 +328,7 @@ class RoomEnv():
         plt.pause(.0001)
       
 class BaseAgent():
-    def __init__(self, do_plot=False, do_save_figs=False, save_fig_every=3,
+    def __init__(self, do_plot=False, do_save_figs=False, save_fig_every=1,
                        do_make_gif=False, save_path='saved', n_episodes=10, 
                        seed=133, train=False):
 
@@ -376,7 +377,7 @@ class BaseAgent():
             ne = int(self.episodes-1)
             this_gif_path = self.gif_path %(ne, self.steps)
             logging.info("starting gif creation for episode:{} file:{}".format(ne, this_gif_path))
-            search = os.path.join(self.img_path, 'episode_%04d_frame_*.png' %ne)
+            search = os.path.join(self.img_path, 'episode_%06d_frame_*.png' %ne)
             cmd = 'convert %s %s'%(search, this_gif_path)
             # make gif
             Popen(cmd.split(' '))
@@ -437,7 +438,41 @@ class BaseAgent():
         self.episodes+=1
 
 if __name__ == '__main__':
-    #env = RoomEnv(obstacle_type='walkers')
-    ba = BaseAgent(do_plot=False, do_save_figs=True, train=True, n_episodes=20000, seed=415)
+    import argparse
+    parser = argparse.ArgumentParser()
+    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
+
+    parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
+    parser.add_argument('-c', '--cuda', action='store_true', default=False)
+    parser.add_argument('-d', '--datadir', default=default_base_datadir)
+    parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
+    parser.add_argument('-l', '--model_loadpath', default=None)
+
+    args = parser.parse_args()
+    model_savepath = args.model_savepath
+    train_data_dir = os.path.join(args.datadir, 'imgs_train')
+    test_data_dir =  os.path.join(args.datadir, 'imgs_test')
+    use_cuda = args.cuda
+
+    if args.model_loadpath is not None:
+        if os.path.exists(args.model_loadpath):
+            model = torch.load(args.model_loadpath)
+            opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+            opt.load_state_dict(checkpoint['optimizer'])
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
+        else:
+            print('could not find checkpoint at {}'.format(args.model_loadpath))
+    else:
+        if use_cuda:
+            model = AutoEncoder().cuda()
+        else:
+            model = AutoEncoder()
+        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    train_loader = DataLoader(FroggerDataset(train_data_dir, transform=transforms.ToTensor()), batch_size=64, shuffle=True)
+    test_loader = DataLoader(FroggerDataset(test_data_dir, transform=transforms.ToTensor()), batch_size=32, shuffle=True)
+    test_data = list(test_loader)
+ 
+    ba = BaseAgent(do_plot=False, do_save_figs=True, do_make_gif=True, train=True, n_episodes=5, seed=415)
     ba.run()
 
