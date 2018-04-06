@@ -22,7 +22,17 @@ class AutoEncoder(nn.Module):
         super(AutoEncoder, self).__init__()
         self.nr_logistic_mix = nr_logistic_mix
         data_channels_size = 1
-        encoder_output_size = 8
+        encoder_output_size = 64
+        # the encoder_output_size is the size of the vector that is compressed
+        # with vector quantization. if it is too large, vector quantization
+        # becomes more difficult. if it is too small, then the conv net has less
+        # capacity.
+        # 64 - the network seems to train fairly well in only one epoch -
+        # 16 - the network was able to perform nearly perfectly after 100 epochs
+        # the compression factor can be thought of as follows for an input space
+        # of 40x40x1 and z output of 10x10x9 (512 = 2**9 = 9 bits)
+        # (40x40x1x8)/(10x10x9) = 12800/900 = 14.22
+
         num_mixture = 2*self.nr_logistic_mix*data_channels_size+self.nr_logistic_mix
 
         self.encoder = nn.Sequential(
@@ -90,6 +100,7 @@ class AutoEncoder(nn.Module):
         dists = torch.pow(measure, 2).sum(-2)
         # pytorch gives real min and arg min - select argmin
         # this is the closest k for each sample - Equation 1
+        # latents is a array of integers
         latents = dists.min(-1)[1]
 
         # look up cluster centers
@@ -98,7 +109,7 @@ class AutoEncoder(nn.Module):
         z_q_x = z_q_x.view(N, H, W, C).permute(0, 3, 1, 2)
         # put quantized data through decoder
         x_tilde = self.decoder(z_q_x)
-        return x_tilde, z_e_x, z_q_x
+        return x_tilde, z_e_x, z_q_x, latents
 
 if __name__ == '__main__':
     use_cuda = False
