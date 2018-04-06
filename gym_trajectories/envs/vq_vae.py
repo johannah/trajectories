@@ -16,10 +16,10 @@ def to_scalar(arr):
         return arr.cpu().data.tolist()[0]
 
 class AutoEncoder(nn.Module):
-    def __init__(self, num_clusters=512):
+    def __init__(self, num_clusters=128):
         super(AutoEncoder, self).__init__()
         data_channels_size = 1
-        encoder_output_size = 64
+        encoder_output_size = 8
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels=data_channels_size,
                       out_channels=16,

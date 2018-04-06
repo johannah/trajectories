@@ -1,6 +1,5 @@
 import matplotlib
 matplotlib.use('TkAgg')
-from glob import glob
 import os
 from subprocess import Popen
 import gym
@@ -10,6 +9,24 @@ from IPython import embed
 import logging
 import math
 from imageio import imwrite
+import shutil
+import torch
+from IPython import embed
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from torchvision import datasets, transforms
+from vq_vae import AutoEncoder, to_scalar
+from torch.autograd import Variable
+import numpy as np
+from torchvision.utils import save_image
+import time
+from glob import glob
+import os
+from imageio import imread, imwrite
+from PIL import Image
+
+
+
 lose_reward=-100
 step_reward=-1
 win_reward=100
@@ -330,8 +347,9 @@ class RoomEnv():
 class BaseAgent():
     def __init__(self, do_plot=False, do_save_figs=False, save_fig_every=1,
                        do_make_gif=False, save_path='saved', n_episodes=10, 
-                       seed=133, train=False):
+                       seed=133, train=False, mcts_model={}):
 
+        self.mcts_model = mcts_model
         self.do_plot = do_plot
         self.do_save_figs = do_save_figs
         self.save_fig_every=save_fig_every
@@ -394,21 +412,26 @@ class BaseAgent():
         random_speed = self.rdn.choice(self.env.action_space[1] )
         return [random_angle, random_speed]
 
-#    def get_mcts_action(self, state, ucb_weight=0.5):
-#        init_y, init_x = self.env.robot.y, self.env.robot.x
-#
-#        actions = [(action_angle,action_speed) for action_angle in self.env.action_space[0] for action_speed in self.env.action_space[1]]
-#        move_states = []
-#
-#        for action in actions:
-#            # reset robot back to starting position
-#            # first step
-#            self.env.robot.y = init_y
-#            self.env.robot.x = init_x
-#            self.env.steps = 0
-#            action = [action_angle, action_speed]
-#            next_state, reward, finished, _ = self.env.step(action)
-#            move_states.append(next_state)
+    def get_mcts_action(self, state, ucb_weight=0.5):
+        init_y, init_x = self.env.robot.y, self.env.robot.x
+
+        actions = [(action_angle,action_speed) for action_angle in self.env.action_space[0] for action_speed in self.env.action_space[1]]
+        move_states = []
+        sdata = transforms.ToTensor()(state[:,:,None].astype(np.float32))
+        tstate = Variable(sdata)
+        x_tilde, z_e_x, z_q_x = self.mcts_model['rep_model'](tstate[None])
+        embed()
+
+
+        #for action in actions:
+        #    # reset robot back to starting position
+        #    # first step
+        #    self.env.robot.y = init_y
+        #    self.env.robot.x = init_x
+        #    self.env.steps = 0
+        #    action = [action_angle, action_speed]
+        #    next_state, reward, finished, _ = self.env.step(action)
+        #    move_states.append(next_state)
 
     def run_episode(self):
         print("starting episode {}".format(self.episodes))
@@ -416,8 +439,9 @@ class BaseAgent():
         state = self.env.reset()
         finished = False
         while not finished:
-            action = self.get_goal_action(state)
+            #action = self.get_goal_action(state)
             #action = self.get_random_action(state)
+            action = self.get_mcts_action(state)
             next_state, reward, finished, _ = self.env.step(action)
             self.steps+=1
             state = next_state
@@ -440,39 +464,38 @@ class BaseAgent():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
+    default_base_datadir = 'saved'
+    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model_40x40_level3.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
-    parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
-    parser.add_argument('-l', '--model_loadpath', default=None)
+    #parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
+    parser.add_argument('-l', '--model_loadpath', default=default_model_savepath)
 
     args = parser.parse_args()
-    model_savepath = args.model_savepath
-    train_data_dir = os.path.join(args.datadir, 'imgs_train')
-    test_data_dir =  os.path.join(args.datadir, 'imgs_test')
     use_cuda = args.cuda
 
+    if use_cuda:
+        model = AutoEncoder().cuda()
+    else:
+        model = AutoEncoder()
+ 
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     if args.model_loadpath is not None:
         if os.path.exists(args.model_loadpath):
-            model = torch.load(args.model_loadpath)
-            opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-            opt.load_state_dict(checkpoint['optimizer'])
-            print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
+            model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
+            model.load_state_dict(model_dict['state_dict'])
+            opt.load_state_dict(model_dict['optimizer'])
+          
+            print('loaded checkpoint at epoch: {} from {}'.format(model_dict['epoch'], args.model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.model_loadpath))
-    else:
-        if use_cuda:
-            model = AutoEncoder().cuda()
-        else:
-            model = AutoEncoder()
-        opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    train_loader = DataLoader(FroggerDataset(train_data_dir, transform=transforms.ToTensor()), batch_size=64, shuffle=True)
-    test_loader = DataLoader(FroggerDataset(test_data_dir, transform=transforms.ToTensor()), batch_size=32, shuffle=True)
-    test_data = list(test_loader)
+    mcts_model = {'rep_model':model, 
+                  'rep_opt':opt, 
+                  'use_cuda':use_cuda}
  
-    ba = BaseAgent(do_plot=False, do_save_figs=True, do_make_gif=True, train=True, n_episodes=5, seed=415)
+    ba = BaseAgent(do_plot=False, train=True, n_episodes=5, seed=415, mcts_model=mcts_model)
     ba.run()
 
