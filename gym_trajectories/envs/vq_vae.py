@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from copy import deepcopy
 from IPython import embed
+#from utils import discretized_mix_logistic_loss
+#from utils import sample_from_discretized_mix_logistic
 
 def to_scalar(arr):
     if type(arr) == list:
@@ -16,10 +18,13 @@ def to_scalar(arr):
         return arr.cpu().data.tolist()[0]
 
 class AutoEncoder(nn.Module):
-    def __init__(self, num_clusters=128):
+    def __init__(self, num_clusters=512, nr_logistic_mix=10):
         super(AutoEncoder, self).__init__()
+        self.nr_logistic_mix = nr_logistic_mix
         data_channels_size = 1
-        encoder_output_size = 8
+        encoder_output_size = 16
+        num_mixture = 2*self.nr_logistic_mix*data_channels_size+self.nr_logistic_mix
+
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels=data_channels_size,
                       out_channels=16,
@@ -62,10 +67,10 @@ class AutoEncoder(nn.Module):
                 nn.BatchNorm2d(16),
                 nn.ReLU(True),
                 nn.ConvTranspose2d(in_channels=16,
-                        out_channels=data_channels_size,
+                        out_channels=num_mixture,
                         kernel_size=4,
                         stride=2, padding=1),
-                nn.Sigmoid()
+                #nn.Sigmoid()
                 )
 
     def forward(self, x):
@@ -110,7 +115,9 @@ if __name__ == '__main__':
     z_q_x.retain_grad()
 
     # losses
-    loss1 = F.binary_cross_entropy(x_tilde, x)
+
+    #loss1 = F.binary_cross_entropy(x_tilde, x)
+    loss1 = discretized_mix_logistic_loss(x_tilde,2*x-1)
     loss1.backward(retain_graph=True)
     # make sure that encoder is not receiving gradients - only train decoder
     assert model.encoder[-2].bias.grad is None
