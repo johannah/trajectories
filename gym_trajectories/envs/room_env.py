@@ -69,15 +69,25 @@ class Particle():
         newx = self.x + self.speed*np.cos(rads)*timestep
         self.y,self.x,newyplus,newxplus = self.collide_with_walls(newy,newx)
         if self.alive:
-            y = range(int(self.y), int(newyplus))
-            x = range(int(self.x), int(newxplus))
-            if self.name == 'robot':
-                if not len(y):
-                    y = [int(self.y)]
-                if not len(x):
-                    x = [int(self.x)]
+            if self.name == 'goal':
+                y, x = int(self.y), int(self.x)
+                inds = np.array([(y,   x), 
+                                 (y+1, x), 
+                                 (y-1, x), 
+                                 (y,   x+1), 
+                                 (y,   x-1)]).T
+            else:
+                y = range(int(self.y), int(newyplus))
+                x = range(int(self.x), int(newxplus))
+                if self.name == 'robot':
+                    if not len(y):
+                        y = [int(self.y)]
+                    if not len(x):
+                        x = [int(self.x)]
+                    inds = np.array([(yy,xx) for yy in y for xx in x]).T
+
+
                 inds = np.array([(yy,xx) for yy in y for xx in x]).T
-            inds = np.array([(yy,xx) for yy in y for xx in x]).T
             self.local_map[inds[0,:], inds[1,:]] = self.color
             self.steps +=1
         return self.alive
@@ -420,6 +430,11 @@ class BaseAgent():
         sdata = transforms.ToTensor()(state[:,:,None].astype(np.float32))
         tstate = Variable(sdata)
         x_tilde, z_e_x, z_q_x = self.mcts_model['rep_model'](tstate[None])
+        # x_tilde would need to be sampled if we are going to use it because it 
+        # is a mixture distribution in the 1th channel
+        # z_e_x is the output of the encoder
+        # z_q_x is the input into the decoder
+        # 
         embed()
 
 
