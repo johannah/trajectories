@@ -92,7 +92,7 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_sav
     return model, optimizer
 
 def test(x,model,nr_logistic_mix,save_img_path=None):
-    x_d, _, _, latents = model(x)
+    x_d, z_e_x, z_q_x, latents = model(x)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
     x_cat = torch.cat([x, x_tilde], 0)
     images = x_cat.cpu().data
@@ -119,6 +119,7 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--model_savepath', default=None)
     parser.add_argument('-l', '--model_loadpath', default=None)
     parser.add_argument('-z', '--num_z', default=16, type=int)
+    parser.add_argument('-e', '--num_episodes', default=150, type=int)
 
     args = parser.parse_args()
     train_data_dir = os.path.join(args.datadir, 'imgs_train')
@@ -127,6 +128,7 @@ if __name__ == '__main__':
 
     nr_logistic_mix = 10
     if use_cuda:
+        print("using gpu")
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z).cuda()
     else:
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z)
@@ -150,9 +152,7 @@ if __name__ == '__main__':
                                   batch_size=32, shuffle=True)
     test_data = list(data_test_loader)
 
-
-
-    for i in xrange(epoch,epoch+100):
+    for i in xrange(epoch,epoch+args.num_episodes):
         vmodel, opt = train(i,vmodel,opt,data_train_loader,
                             do_checkpoint=True,do_use_cuda=use_cuda,
                             model_savepath=args.model_savepath)
