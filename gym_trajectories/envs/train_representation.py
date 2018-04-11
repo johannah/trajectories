@@ -99,7 +99,6 @@ def test(x,model,nr_logistic_mix,save_img_path=None):
     if save_img_path is not None:
         oo = 0.5*np.array(x_tilde.cpu().data)[0,0]+0.5
         ii = np.array(x.cpu().data)[0,0]
-        print('z', z.shape)
         imwrite(save_img_path, oo)
         imwrite(save_img_path.replace('.png', 'orig.png'), ii)
 
@@ -119,6 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-s', '--model_savepath', default=None)
     parser.add_argument('-l', '--model_loadpath', default=None)
+    parser.add_argument('-z', '--num_z', default=16, type=int)
 
     args = parser.parse_args()
     train_data_dir = os.path.join(args.datadir, 'imgs_train')
@@ -127,18 +127,21 @@ if __name__ == '__main__':
 
     nr_logistic_mix = 10
     if use_cuda:
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix).cuda()
+        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z).cuda()
     else:
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix)
+        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z)
     opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
+    epoch = 0
     if args.model_loadpath is not None:
         if os.path.exists(args.model_loadpath):
-            vmodel = torch.load(args.model_loadpath)
-            opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
-            opt.load_state_dict(checkpoint['optimizer'])
+            model_dict = torch.load(args.model_loadpath)
+            vmodel.load_state_dict(model_dict['state_dict'])
+            opt.load_state_dict(model_dict['optimizer'])
+            epoch =  model_dict['epoch']
             print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.model_loadpath))
+
     data_train_loader = DataLoader(FroggerDataset(train_data_dir,
                                    transform=transforms.ToTensor()),
                                    batch_size=64, shuffle=True)
@@ -149,7 +152,7 @@ if __name__ == '__main__':
 
 
 
-    for i in xrange(100):
+    for i in xrange(epoch,epoch+100):
         vmodel, opt = train(i,vmodel,opt,data_train_loader,
                             do_checkpoint=True,do_use_cuda=use_cuda,
                             model_savepath=args.model_savepath)
@@ -159,7 +162,8 @@ if __name__ == '__main__':
         else:
             x_test = Variable(test_data[idx][0])
 
-        test(x_test,vmodel,nr_logistic_mix,save_img_path='test.png')
+        test_img = args.model_savepath.replace('.pkl', '_test.png')
+        test(x_test,vmodel,nr_logistic_mix,save_img_path=test_img)
 
 
 
