@@ -354,6 +354,105 @@ class RoomEnv():
         plt.show()
         plt.pause(.0001)
       
+class TreeNode():
+    def __init__(self, parent, prior_p):
+        self._parent = parent
+        self._children = {}
+        self._n_visits = 0
+        self._u = 0
+        self._P = prior_p
+
+    def expand(self, action_priors):
+        ''' expand to create new children. 
+            action priors is the output from the policy function list '''
+            for action, prob in action_priors:
+                self._children[action] = TreeNode(self, prob)
+
+    def select(self, c_puct):
+        ''' select action from children with max action value, Q plus bonus u 
+        returns (action, next_node) '''
+        return max(self._children.items(), key=lambda act_node: act_node[1].get_value(c_puct))
+
+    def update(self, leaf_value):
+        ''' update node values from leaf evaluation 
+        leaf_value is the value of subtree evaluation '''
+        self._n_visits +=1
+        self._Q += 1.0*(leaf_value-self._Q)/self._n_visits
+
+    def update_recursive(self, leaf_value):
+        ''' update() call recursively for all ancestors '''
+        if self._parent:
+            self._parent.update_recursive(-leaf_value)
+        self.update(leaf_value)
+
+    def get_value(self, c_puct):
+        ''' calculate and return value for this node
+        c_puct is a number in (0,inf) which controls the impact of values Q and prior P 
+        on this nodes score'''
+        self._u = c_puct * self._P * np.sqrt(self._parent._n_visits)/(1+self._n_visits)
+        return self._Q + self._u
+
+    def is_leaf(self):
+        ''' check if this is a leaf node '''
+        return self._children == {}
+
+    def is_root(self):
+        return self._parent is None
+
+
+class MCTS():
+    def __init__(self, mcts_model, seed, c_puct=5, n_playout=10000):
+        self._root = TreeNode(None, 1.0)
+        self._policy = policy_value_fn
+        self._c_puct = c_puct
+        self._n_playout = n_playout
+
+    def _playout(self, state):
+        ''' run single playout from root to leaf. get value at leaf and  propagate back 
+        through parents. state is modified in place so pass copy'''
+        node = self._root
+        while True:
+            if node.is_leaf():
+                break
+            # greedy select move
+            action, node = node.select(self._c_puct)
+            state.do_move(action)
+        # evaluate leaf using network which outputs a list of 
+        # (action, prob) tuples p and also a score v 
+        action_probs, leaf_value = self._policy(state)
+        # check for the end of the game
+        end, winner = state.game_end()
+        if not end:
+            node.expand(action_probs)
+        else:
+            # for end state, return true leaf value
+            if winner == -1: # tie
+                leaf_value = 0.0
+            else:
+                leaf_value = 1.0 if winner == state.get_current_player() else -1.0
+        # update value and visit count of nodes in this traversal
+        node.update_recursive(-leaf_value)
+    def get_move_probs(self, state, temp=1e-3):
+        ''' run all playouts sequentiall and return available actions and their probs 
+        state - current state
+        '''
+        for n in range(self._n_playout):
+            state_copy = deepcopy(state)
+            self._playout(state_copy)
+        # calc the move probs based on visit counts at the root node
+        act_visits = [(act,node._n_visits) for act, node in self._root._children.items()]
+        acts, visits = zip(*act_visits)
+        act_probs = softmax(1.0/temp * np.log(visits))
+        return acts, act_probs
+
+    def update_with_move(self, last_move):
+        ''' step forward the entire tree, keep everything we know about the subtree'''
+        if last_move in self._root._children:
+            self._root = self._root._children[last_move]
+            self._root._parent = None
+        else:
+            self._root = TreeNode(None, 1.0)
+
 class BaseAgent():
     def __init__(self, do_plot=False, do_save_figs=False, save_fig_every=1,
                        do_make_gif=False, save_path='saved', n_episodes=10, 
@@ -429,14 +528,17 @@ class BaseAgent():
         move_states = []
         sdata = transforms.ToTensor()(state[:,:,None].astype(np.float32))
         tstate = Variable(sdata)
-        x_tilde, z_e_x, z_q_x = self.mcts_model['rep_model'](tstate[None])
+        x_tilde, z_e_x, z_q_x, latents = self.mcts_model['rep_model'](tstate[None])
         # x_tilde would need to be sampled if we are going to use it because it 
         # is a mixture distribution in the 1th channel
         # z_e_x is the output of the encoder
         # z_q_x is the input into the decoder
-        # 
-        embed()
+        # latents is the code book 
+        # latents = latents.data.numpy()[0]
+        state_input = z_q_x.contiguous().view(z_q_x.shape[0],-1)
 
+        action_probs, state_value = self.mcts_model['zero_model'](state_input)
+ 
 
         #for action in actions:
         #    # reset robot back to starting position
