@@ -18,11 +18,10 @@ def to_scalar(arr):
         return arr.cpu().data.tolist()[0]
 
 class AutoEncoder(nn.Module):
-    def __init__(self, num_clusters=512, nr_logistic_mix=10):
+    def __init__(self, num_clusters=512, encoder_output_size=32, nr_logistic_mix=10):
         super(AutoEncoder, self).__init__()
         self.nr_logistic_mix = nr_logistic_mix
         data_channels_size = 1
-        encoder_output_size = 64
         # the encoder_output_size is the size of the vector that is compressed
         # with vector quantization. if it is too large, vector quantization
         # becomes more difficult. if it is too small, then the conv net has less
@@ -105,7 +104,7 @@ class AutoEncoder(nn.Module):
 
         # look up cluster centers
         z_q_x = self.embedding(latents.view(latents.size(0), -1))
-        # back to NCHW (orig) - now cluster centers
+        # back to NCHW (orig) - now cluster centerskkk/class
         z_q_x = z_q_x.view(N, H, W, C).permute(0, 3, 1, 2)
         # put quantized data through decoder
         x_tilde = self.decoder(z_q_x)
