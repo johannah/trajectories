@@ -73,6 +73,7 @@ class TreeNode(object):
         self.children_ = {}
         self.n_visits_ = 0
         self.past_actions = {}
+        self.n_wins = 0
 
     def expand(self, actions_and_probs):
         for action, prob in actions_and_probs:
@@ -133,9 +134,8 @@ class MCTS(object):
         # set new root of MCTS (we've taken a step in the real game)
         # only sets robot and goal states
         finished,value = self.env.set_state(state, state_index)
-        #print('+++++++++++++START PLAYOUT{}++++++++++++++++'.format(playout_num))
-        #print("starting playout from {}".format(state_index))
-        #print(self.env.get_robot_state(), state, state_index)
+        print('+++++++++++++START PLAYOUT{}++++++++++++++++'.format(playout_num))
+        print(self.env.get_robot_state(), state[:2], state_index)
         init_state = state
         init_state_index = state_index
         node = self.root
@@ -163,26 +163,28 @@ class MCTS(object):
                     # _____ THIS MIGHT BE WRONG
                     value, rand_actions, end_state, end_state_index = self.rollout_from_state(state, state_index)
                     actions += rand_actions
+                    
                     finished = True 
                 else:
                     end_state_index = state_index
                     end_state = state
-                    value = reward
                 print("-----finished from init_state_index {}".format(init_state_index))
+                print("FINISHED value {} actions {}".format(value, actions))
                 #self.playout_end_states.append(end_state)
                 #self.playout_actions.append(actions)
                 # finished the rollout 
                 node.update(value)
                 actions.append(value)
+                if value>0:
+                    node.n_wins+=1
                 #self.get_children(node)
-                #node.past_actions[playout_num] = actions
                 #self.nodes_seen[init_state_index].append(actions)
                 #print(node.past_actions)
+                node.past_actions[playout_num] = actions
 
                 if value == 0:
                     print("VALUE 0")
                     raise
-                    #embed()
                 if value > 0:
                     print('won one with value:{} actions:{}'.format(value, actions))
                     #self.env.render(end_state,end_state_index)
@@ -195,6 +197,7 @@ class MCTS(object):
                 # COULD THIS BE FKD?
                 action, new_node = node.get_best(self.c_uct)
                 actions.append(action)
+                # reward should be zero unless terminal. it should never be terminal here
                 next_state, reward, finished, _ = self.env.step(state, state_index, action)
                 print("NONLEAF state_index {} action {} finished {} reward {}".format(state_index,action,finished,reward))
            
@@ -237,7 +240,6 @@ class MCTS(object):
                 rollout_robot_positions.append(rs)
                 rollout_states.append(state)
                 rollout_actions.append(a)
-                print("ROLLOUT STEP",state_index)
                 state, reward, finished,_ = self.env.step(state, state_index, a)
                 state_index+=1
                 value +=reward
@@ -257,7 +259,11 @@ class MCTS(object):
         # low temp -->> argmax
         self.nodes_seen[state_index] = []
         for n in range(self.n_playouts):
-            self.playout(n, deepcopy(state), deepcopy(state_index))
+            from_state = deepcopy(state)
+            from_state_index = deepcopy(state_index)
+            #self.env.set_state(from_state, from_state_index)
+            #print("GET ACTION_PROBS", n, self.env.get_robot_state(), from_state[:2], from_state_index)
+            self.playout(n, from_state, from_state_index)
         self.env.set_state(state, state_index)
         act_visits = [(act,node.n_visits_) for act, node in self.root.children_.items()]
         actions, visits = zip(*act_visits)
@@ -302,11 +308,12 @@ class MCTS(object):
         else:
             print("Move argument {} to update_to_move not in actions {}, resetting".format(action, self.root.children_.keys()))
 
-def run_trace(max_goal_distance=1000):
+def run_trace(max_goal_distance=100):
     rrs = []
     states_trace = []
     actions_trace = []
     finished = False
+    mcts = MCTS(rdn,n_playouts=200)
     # restart at same position every time
     state = true_env.reset(max_goal_distance)
     mcts.env = deepcopy(true_env)
@@ -319,16 +326,16 @@ def run_trace(max_goal_distance=1000):
         rrs.append((ry,rx))
         action, action_probs = mcts.get_best_action(state, t)
         print("before robot real step")
+        print(ry,rx)
         next_state, reward, finished, _ = true_env.step(state, t, action)
-        print("main thread robot at {},{}".format(ry,rx))
+        print('got reward', reward, finished)
+        mcts.update_tree_move(action)
         v+=reward
         states_trace.append(state)
         actions_trace.append(action)
-        print('F:R action:{} next_state:{}'.format(state[1], action, next_state))
         true_env.render(next_state,t)
         if not finished:
             state = next_state
-            mcts.update_tree_move(action)
             t+=1
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -353,9 +360,8 @@ if __name__ == "__main__":
     ss = []
     aa = []
     rr = []
-    true_env = RoadEnv(ysize=15,xsize=14)
+    true_env = RoadEnv(ysize=15,xsize=15, level=0)
     rdn = np.random.RandomState(343)
-    mcts = MCTS(rdn,n_playouts=400)
     goal_dis = 5 
     for i in range(10):
         s, a, v = run_trace(goal_dis)
