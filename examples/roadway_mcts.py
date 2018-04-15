@@ -201,6 +201,9 @@ class MCTS(object):
                 next_state, reward, finished, _ = self.env.step(state, state_index, action)
                 print("NONLEAF state_index {} action {} finished {} reward {}".format(state_index,action,finished,reward))
            
+                if abs(reward)>0:
+                    print("GOT NONZERO REWARD AT STEP")
+                    embed()
                 # SO APPARENTLY IT IS NEVER SUPPOSED TO END HERE WHICH SEEMS UNREASONABLE TO ME
                 # MINE TOTALLY ENDS HERE 
                 state_indexes.append(state_index)
@@ -360,7 +363,7 @@ if __name__ == "__main__":
     ss = []
     aa = []
     rr = []
-    true_env = RoadEnv(ysize=15,xsize=15, level=0)
+    true_env = RoadEnv(ysize=15,xsize=15, level=1)
     rdn = np.random.RandomState(343)
     goal_dis = 5 
     for i in range(10):
