@@ -3,60 +3,18 @@
 # http://mcts.ai/pubs/mcts-survey-master.pdf
 # https://github.com/junxiaosong/AlphaZero_Gomoku
 
-# Key modifications from base MCTS described in survey paper
-# use PUCT instead of base UCT
-# Expand() expands *all* children, but only does rollout on 1 of them
-# Selection will naturally bias toward the unexplored nodes
-# so the "fresh" children will quickly be explored
-# This is to closer match AlphaGo Zero, see appendix of the Nature paper
-
 from gym_trajectories.envs.road import RoadEnv
 import time
 import numpy as np
 from IPython import embed
 from copy import deepcopy
+import logging 
+
 def softmax(x):
     assert len(x.shape) == 1
     probs = np.exp(x - np.max(x))
     probs /= np.sum(probs)
     return probs
-
-## simple state machine, counting
-#class Env(object):
-#    def __init__(self, size=5, seed=334):
-#        self.size = size
-#        self.action_space = tuple(range(self.size))
-#        self.rdn = np.random.RandomState(seed)
-#        self.states = range(size)
-#
-#    def reset(self, start_state_index=0):
-#        # return state
-#        return self.states[start_state_index]
-#
-#    def step(self, state_index, action):
-#        print(self.states)
-#        print(state_index, action)
-#        # step to state index with action
-#        # return next_state, reward, finished, _
-#        finished = False
-#        state = self.states[state_index]
-#        if action == state:
-#            # if you choose action == state, progress, else stuck
-#            next_state_index = state_index+1
-#            next_state = self.states[next_state_index]
-#            reward = +1
-#            if next_state == self.size-1:
-#                finished = True
-#                reward += self.size + 10
-#        else:
-#            # lose
-#            next_state_index = 0
-#            next_state = self.states[next_state_index]
-#            finished = True
-#            reward = -self.size + -10
-#
-#        return next_state, reward, finished, {}
-
             
 def perfect_policy_fn(state, valid_actions):
     action_probs = np.zeros_like(valid_actions).astype(np.float)
@@ -111,8 +69,8 @@ class TreeNode(object):
 
 
 class MCTS(object):
-    def __init__(self, 
-                       random_state, c_uct=1.4, n_playouts=1000):
+    def __init__(self, env, random_state, c_uct=1.4, n_playouts=1000, rollout_length=300):
+        self.env = env
         self.rdn = random_state
         self.root = TreeNode(None,  name=(0,-1))
         self.c_uct = c_uct
@@ -121,6 +79,7 @@ class MCTS(object):
         self.warn_at_tree_size = 1000
         self.tree_subs_ = []
         self.step = 0
+        self.rollout_length = rollout_length
         self.nodes_seen = {}
 
     def get_children(self, node):
@@ -134,25 +93,17 @@ class MCTS(object):
         # set new root of MCTS (we've taken a step in the real game)
         # only sets robot and goal states
         finished,value = self.env.set_state(state, state_index)
-        print('+++++++++++++START PLAYOUT{}++++++++++++++++'.format(playout_num))
-        print(self.env.get_robot_state(), state[:2], state_index)
+        logging.debug('+++++++++++++START PLAYOUT NUM: {} FOR STATE: {}++++++++++++++'.format(playout_num,state_index))
         init_state = state
         init_state_index = state_index
         node = self.root
-        state_indexes = [state_index]
         actions = []
-        self.playout_end_states = []
-        self.playout_actions = []
-        self.playout_rrs = []
         won = False
         while True:
-            #print(".... playout state:{} nodename{}".format(state_index, node.name))
             rs = self.env.get_robot_state()
-            self.playout_rrs.append(rs)
-
             if node.is_leaf():
                 if not finished:
-                    print('expanding leaf at state {} robot: {}'.format(state_index, rs))
+                    logging.debug('PLAYOUT INIT STATE {}: expanding leaf at state {} robot: {}'.format(init_state_index, state_index, rs))
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
                     probs = np.ones(len(self.env.action_space))/float(len(self.env.action_space))
@@ -161,48 +112,26 @@ class MCTS(object):
                     # if you have a neural network - use it here to bootstrap the value
                     # otherwise, playout till the end
                     # rollout one randomly
-                    # _____ THIS MIGHT BE WRONG
                     value, rand_actions, end_state, end_state_index = self.rollout_from_state(state, state_index)
                     actions += rand_actions
                     finished = True 
                 else:
                     end_state_index = state_index
                     end_state = state
-                #print("-----finished from init_state_index {}".format(init_state_index))
-                #print("FINISHED value {} actions {}".format(value, actions))
-                #self.playout_end_states.append(end_state)
-                #self.playout_actions.append(actions)
                 # finished the rollout 
                 node.update(value)
                 actions.append(value)
-                if value>0:
+                if value > 0:
                     node.n_wins+=1
                     won = True
-                #node.past_actions.append(actions)
-
-                if value == 0:
-                    print("VALUE 0")
-                    raise
-                if value > 0:
-                    print('won one with value:{} actions:{}'.format(value, actions))
-                if abs(value) == 1:
-                    print("VALUE 1")
-                    embed()
+                    logging.debug('won one with value:{} actions:{}'.format(value, actions))
                 return won
             else:
                 # greedy select
                 # trys actions based on c_uct
-                # COULD THIS BE FKD?
                 action, new_node = node.get_best(self.c_uct)
                 actions.append(action)
-                # reward should be zero unless terminal. it should never be terminal here
                 next_state, value, finished, _ = self.env.step(state, state_index, action)
-                #print("NONLEAF state_index {} action {} finished {} reward {}".format(state_index,action,finished,value))
-           
-                
-                # SO APPARENTLY IT IS NEVER SUPPOSED TO END HERE WHICH SEEMS UNREASONABLE TO ME
-                # MINE TOTALLY ENDS HERE 
-                state_indexes.append(state_index)
                 # time step
                 state_index +=1
                 state = next_state
@@ -217,24 +146,21 @@ class MCTS(object):
         act = self.rdn.choice(acts, p=probs)
         return act, act_probs
 
-
-
     def rollout_from_state(self, state, state_index):
-        print('-------------------------------------------')
-        print('starting random rollout from state: {}'.format(state_index))
+        logging.debug('-------------------------------------------')
+        logging.debug('starting random rollout from state: {}'.format(state_index))
         init_state = state
         init_index = state_index
         rollout_actions = []
         rollout_states = []
         rollout_robot_positions = []
- 
         try:
             finished,value = self.env.set_state(state, state_index)
             if finished:
                 return value, rollout_actions, state, state_index
             c = 0
             while not finished:
-                if c < 10:
+                if c < self.rollout_length:
                     rs = self.env.get_robot_state()
                     a, action_probs = self.get_rollout_action(state)
                     rollout_robot_positions.append(rs)
@@ -244,18 +170,17 @@ class MCTS(object):
                     state_index+=1
                     c+=1
                     if finished:
-                        print('finished rollout after {} steps with value {}'.format(c,value))
+                        logging.debug('finished rollout after {} steps with value {}'.format(c,value))
                         value = reward
                 else:
                     # stop early
-                    value = self.env.get_lose_reward(state_index)
-                    print('stopping rollout after {} steps with value {}'.format(c,value))
+                    value = self.env.get_timeout_reward(state_index)
+                    logging.debug('stopping rollout after {} steps with value {}'.format(c,value))
                     finished = True
 
-            print('-------------------------------------------')
+            logging.debug('-------------------------------------------')
         except Exception, e:
             print(e)
-            raise
             embed()
         return value, rollout_actions, state, state_index
 
@@ -271,10 +196,9 @@ class MCTS(object):
                 from_state = deepcopy(state)
                 from_state_index = deepcopy(state_index)
                 won+=self.playout(n, from_state, from_state_index)
-            print("NUMBER WON", won)
         else:
-            print("GIVEN STATE WHICH WILL DIE")
-            embed()
+            logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
+            #embed()
             
         self.env.set_state(state, state_index)
         act_visits = [(act,node.n_visits_) for act, node in self.root.children_.items()]
@@ -296,17 +220,12 @@ class MCTS(object):
         return act, act_probs
 
     def get_best_action(self, state, state_index):
+        logging.info("mcts starting search for action in state: {}".format(state_index))
         orig_state = deepcopy(state)
         self.env.set_state(state, state_index)
         acts, probs = self.get_action_probs(state, state_index, temp=1e-3)
-        #act_probs = np.zeros_like((self.env.action_space)).astype(np.float)
-        #act_probs[list(acts)] = probs
-        #maxes = np.max(act_probs)
-        #opts = np.where(act_probs == maxes)[0]
-        #if len(opts)>1:
-        #    self.rdn.shuffle(opts)
-        #act = opts[0]
         act = self.rdn.choice(acts, p=probs)
+        logging.info("mcts chose action {} in state: {}".format(act,state_index))
         return act, probs
 
     def update_tree_move(self, action):
@@ -314,77 +233,100 @@ class MCTS(object):
         if action in self.root.children_:
             self.tree_subs_.append((self.root, self.root.children_[action]))
             if len(self.tree_subs_) > self.warn_at_tree_size:
-                print("WARNING: over {} tree_subs_ detected".format(len(self.tree_subs_)))
+                logging.warn("WARNING: over {} tree_subs_ detected".format(len(self.tree_subs_)))
             self.root = self.root.children_[action]
             self.root.parent = None
         else:
-            print("Move argument {} to update_to_move not in actions {}, resetting".format(action, self.root.children_.keys()))
+            logging.error("Move argument {} to update_to_move not in actions {}, resetting".format(action, self.root.children_.keys()))
 
     def reset_tree(self):
-        print("Resetting tree")
+        logging.warn("Resetting tree")
         self.root = TreeNode(None)
         self.tree_subs_ = []
 
-def run_trace(max_goal_distance=100):
-    rrs = []
-    states_trace = []
-    actions_trace = []
-    finished = False
-    # restart at same position every time
-    state = true_env.reset(max_goal_distance)
-    v = 0
-    t = 0
+def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100, 
+              n_playouts=300, max_rollout_length=50):
 
-    mcts = MCTS(rdn,n_playouts=500)
-    mcts.env = deepcopy(true_env)
+    # log params
+    results = {'decision_ts':[], 'dis_to_goal':[], 'actions':[], 
+               'ysize':ysize, 'xsize':xsize, 'level':level, 
+               'n_playouts':n_playouts, 'seed':seed,
+               'max_rollout_length':max_rollout_length}
+
+    # restart at same position every time
+    rdn = np.random.RandomState(seed)
+    true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
+    state = true_env.reset(max_goal_distance)
+
+    mcts_rdn = np.random.RandomState(seed+1)
+    mcts = MCTS(env=deepcopy(true_env),random_state=mcts_rdn,
+                n_playouts=n_playouts,rollout_length=max_rollout_length)
+
+    t = 0
+    finished = False
+    # draw initial state
     true_env.render(state,t)
     while not finished:
         ry,rx = true_env.get_robot_state()
-        rrs.append((ry,rx))
-        action, action_probs = mcts.get_best_action(state, t)
-        next_state, reward, finished, _ = true_env.step(state, t, action)
+        current_goal_distance = true_env.get_distance_to_goal()
+
+        # search for best action
+        st = time.time()
+        action, action_probs = mcts.get_best_action(deepcopy(state), t)
         mcts.update_tree_move(action)
-        v+=reward
-        states_trace.append(state)
-        actions_trace.append(action)
+        et = time.time()
+
+        next_state, reward, finished, _ = true_env.step(state, t, action)
         true_env.render(next_state,t)
+
+        results['decision_ts'].append(et-st)
+        results['dis_to_goal'].append(current_goal_distance)
+        results['actions'].append(action)
         if not finished:
             state = next_state
             t+=1
+        else:
+            results['reward'] = reward
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
-    print(rrs) 
-    print(actions_trace)
-    if v>0:
-        print("robot won after {} steps".format(t))
+    if reward>0:
+        print("robot won reward={} after {} steps".format(reward,t))
     else:
-        print("robot died after {} steps".format(t))
+        print("robot died reward={} after {} steps".format(reward,t))
         embed()
-
-    print(v)
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
 
-    return states_trace, actions_trace, v
+    time.sleep(1)
+    true_env.close_plot()
+    return results
 
 
 if __name__ == "__main__":
-    ss = []
-    aa = []
-    rr = []
-    true_env = RoadEnv(ysize=40,xsize=20, level=4)
-    rdn = np.random.RandomState(343)
-    goal_dis = 15
-    for i in range(10):
-        s, a, v = run_trace(goal_dis)
-        goal_dis+=2
-        ss.append(s)
-        aa.append(a)
-        rr.append(v)
-        time.sleep(1)
-        true_env.close_plot()
+    import argparse  
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
+    parser.add_argument('-e', '--num_episodes', type=int, default=10, help='num traces to run')
+    parser.add_argument('-y', '--ysize', type=int, default=40, help='pixel size of game in y direction')
+    parser.add_argument('-x', '--xsize', type=int, default=40, help='pixel size of game in x direction')
+    parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
+    parser.add_argument('-l', '--level', type=int, default=4, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
+    parser.add_argument('-p', '--num_playouts', type=int, default=200, help='number of playouts for each step')
+    parser.add_argument('-r', '--rollout_steps', type=int, default=100, help='limit number of steps taken be random rollout')
+
+    args = parser.parse_args()
+    seed = args.seed
+    goal_dis = args.max_goal_distance
+    logging.basicConfig(level=logging.INFO)
+
+    all_results = []
+    for i in range(args.num_episodes):
+        r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
+                      max_goal_distance=goal_dis, n_playouts=args.num_playouts, max_rollout_length=args.rollout_steps)
+
+        all_results.append(r)
     print("FINISHED")
     embed()
