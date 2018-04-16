@@ -72,7 +72,7 @@ class TreeNode(object):
         # action -> tree node
         self.children_ = {}
         self.n_visits_ = 0
-        self.past_actions = {}
+        self.past_actions = []
         self.n_wins = 0
 
     def expand(self, actions_and_probs):
@@ -144,6 +144,7 @@ class MCTS(object):
         self.playout_end_states = []
         self.playout_actions = []
         self.playout_rrs = []
+        won = False
         while True:
             #print(".... playout state:{} nodename{}".format(state_index, node.name))
             rs = self.env.get_robot_state()
@@ -163,13 +164,12 @@ class MCTS(object):
                     # _____ THIS MIGHT BE WRONG
                     value, rand_actions, end_state, end_state_index = self.rollout_from_state(state, state_index)
                     actions += rand_actions
-                    
                     finished = True 
                 else:
                     end_state_index = state_index
                     end_state = state
-                print("-----finished from init_state_index {}".format(init_state_index))
-                print("FINISHED value {} actions {}".format(value, actions))
+                #print("-----finished from init_state_index {}".format(init_state_index))
+                #print("FINISHED value {} actions {}".format(value, actions))
                 #self.playout_end_states.append(end_state)
                 #self.playout_actions.append(actions)
                 # finished the rollout 
@@ -177,20 +177,18 @@ class MCTS(object):
                 actions.append(value)
                 if value>0:
                     node.n_wins+=1
-                #self.get_children(node)
-                #self.nodes_seen[init_state_index].append(actions)
-                #print(node.past_actions)
-                node.past_actions[playout_num] = actions
+                    won = True
+                #node.past_actions.append(actions)
 
                 if value == 0:
                     print("VALUE 0")
                     raise
                 if value > 0:
                     print('won one with value:{} actions:{}'.format(value, actions))
-                    #self.env.render(end_state,end_state_index)
-                #print('end state', end_state)
-                #print(actions)
-                return
+                if abs(value) == 1:
+                    print("VALUE 1")
+                    embed()
+                return won
             else:
                 # greedy select
                 # trys actions based on c_uct
@@ -198,12 +196,10 @@ class MCTS(object):
                 action, new_node = node.get_best(self.c_uct)
                 actions.append(action)
                 # reward should be zero unless terminal. it should never be terminal here
-                next_state, reward, finished, _ = self.env.step(state, state_index, action)
-                print("NONLEAF state_index {} action {} finished {} reward {}".format(state_index,action,finished,reward))
+                next_state, value, finished, _ = self.env.step(state, state_index, action)
+                #print("NONLEAF state_index {} action {} finished {} reward {}".format(state_index,action,finished,value))
            
-                if abs(reward)>0:
-                    print("GOT NONZERO REWARD AT STEP")
-                    embed()
+                
                 # SO APPARENTLY IT IS NEVER SUPPOSED TO END HERE WHICH SEEMS UNREASONABLE TO ME
                 # MINE TOTALLY ENDS HERE 
                 state_indexes.append(state_index)
@@ -238,19 +234,25 @@ class MCTS(object):
                 return value, rollout_actions, state, state_index
             c = 0
             while not finished:
-                rs = self.env.get_robot_state()
-                a, action_probs = self.get_rollout_action(state)
-                rollout_robot_positions.append(rs)
-                rollout_states.append(state)
-                rollout_actions.append(a)
-                state, reward, finished,_ = self.env.step(state, state_index, a)
-                state_index+=1
-                value +=reward
-                c+=1
+                if c < 10:
+                    rs = self.env.get_robot_state()
+                    a, action_probs = self.get_rollout_action(state)
+                    rollout_robot_positions.append(rs)
+                    rollout_states.append(state)
+                    rollout_actions.append(a)
+                    state, reward, finished,_ = self.env.step(state, state_index, a)
+                    state_index+=1
+                    c+=1
+                    if finished:
+                        print('finished rollout after {} steps with value {}'.format(c,value))
+                        value = reward
+                else:
+                    # stop early
+                    value = self.env.get_lose_reward(state_index)
+                    print('stopping rollout after {} steps with value {}'.format(c,value))
+                    finished = True
 
-            print('finished rollout after {} steps with value {}'.format(c,value))
             print('-------------------------------------------')
-            #print(zip(rollout_robot_positions, rollout_actions))
         except Exception, e:
             print(e)
             raise
@@ -261,12 +263,19 @@ class MCTS(object):
     def get_action_probs(self, state, state_index, temp=1e-3):
         # low temp -->> argmax
         self.nodes_seen[state_index] = []
-        for n in range(self.n_playouts):
-            from_state = deepcopy(state)
-            from_state_index = deepcopy(state_index)
-            #self.env.set_state(from_state, from_state_index)
-            #print("GET ACTION_PROBS", n, self.env.get_robot_state(), from_state[:2], from_state_index)
-            self.playout(n, from_state, from_state_index)
+        won = 0
+
+        finished,value = self.env.set_state(state, state_index)
+        if not finished:
+            for n in range(self.n_playouts): 
+                from_state = deepcopy(state)
+                from_state_index = deepcopy(state_index)
+                won+=self.playout(n, from_state, from_state_index)
+            print("NUMBER WON", won)
+        else:
+            print("GIVEN STATE WHICH WILL DIE")
+            embed()
+            
         self.env.set_state(state, state_index)
         act_visits = [(act,node.n_visits_) for act, node in self.root.children_.items()]
         actions, visits = zip(*act_visits)
@@ -311,27 +320,29 @@ class MCTS(object):
         else:
             print("Move argument {} to update_to_move not in actions {}, resetting".format(action, self.root.children_.keys()))
 
+    def reset_tree(self):
+        print("Resetting tree")
+        self.root = TreeNode(None)
+        self.tree_subs_ = []
+
 def run_trace(max_goal_distance=100):
     rrs = []
     states_trace = []
     actions_trace = []
     finished = False
-    mcts = MCTS(rdn,n_playouts=200)
     # restart at same position every time
     state = true_env.reset(max_goal_distance)
-    mcts.env = deepcopy(true_env)
     v = 0
     t = 0
 
+    mcts = MCTS(rdn,n_playouts=500)
+    mcts.env = deepcopy(true_env)
     true_env.render(state,t)
     while not finished:
         ry,rx = true_env.get_robot_state()
         rrs.append((ry,rx))
         action, action_probs = mcts.get_best_action(state, t)
-        print("before robot real step")
-        print(ry,rx)
         next_state, reward, finished, _ = true_env.step(state, t, action)
-        print('got reward', reward, finished)
         mcts.update_tree_move(action)
         v+=reward
         states_trace.append(state)
@@ -349,6 +360,7 @@ def run_trace(max_goal_distance=100):
         print("robot won after {} steps".format(t))
     else:
         print("robot died after {} steps".format(t))
+        embed()
 
     print(v)
     print("_____________________________________________________________________")
@@ -363,9 +375,9 @@ if __name__ == "__main__":
     ss = []
     aa = []
     rr = []
-    true_env = RoadEnv(ysize=15,xsize=15, level=1)
+    true_env = RoadEnv(ysize=40,xsize=20, level=4)
     rdn = np.random.RandomState(343)
-    goal_dis = 5 
+    goal_dis = 15
     for i in range(10):
         s, a, v = run_trace(goal_dis)
         goal_dis+=2
