@@ -22,11 +22,12 @@ def perfect_policy_fn(state, valid_actions):
     comb = tuple(zip(valid_actions, action_probs))
     return comb, 0
 
-class TreeNode(object):
-    def __init__(self, parent, name='unk'):
+class PTreeNode(object):
+    def __init__(self, parent, prior_prob, name='unk'):
         self.name = name
         self.parent = parent
-        self.W_ = 0.0
+        self.Q_ = 0.0
+        self.P_ = float(prior_prob)
         # action -> tree node
         self.children_ = {}
         self.n_visits_ = 0
@@ -37,7 +38,7 @@ class TreeNode(object):
         for action, prob in actions_and_probs:
             if action not in self.children_:
                 child_name = (self.name[0],action)
-                self.children_[action] = TreeNode(self, name=child_name)
+                self.children_[action] = PTreeNode(self, prior_prob=prob, name=child_name)
 
     def is_leaf(self):
         return self.children_ == {}
@@ -47,33 +48,43 @@ class TreeNode(object):
 
     def _update(self, value):
         self.n_visits_ += 1
-        self.W_ += value
+        self.Q_ += (value-self.Q_)/float(self.n_visits_)
 
     def update(self, value):
         if self.parent != None:
             self.parent.update(value)
         self._update(value)
 
-    def get_value(self, c_uct):
-        if self.n_visits_ == 0:
-            lp=0.0
-            rp = np.inf
-        else:
-            lp = self.W_/float(self.n_visits_)
-            rp = c_uct*np.sqrt(2*np.log(self.parent.n_visits_)/float(self.n_visits_))
-        return lp+rp
+    def get_value(self, c_puct):
+        self.U_ = c_puct * self.P_ * np.sqrt(float(self.parent.n_visits_)) / float(1+self.n_visits_)
+        return self.Q_ + self.U_
 
-    def get_best(self, c_uct):
-        best = max(self.children_.iteritems(), key=lambda x: x[1].get_value(c_uct))
+    def get_best(self, c_puct):
+        best = max(self.children_.iteritems(), key=lambda x: x[1].get_value(c_puct))
         return best
 
+def goal_node_probs_fn(state, state_index, env):
+    # TODO make env take in state to give goal/robot
+    bearing = env.get_goal_bearing(state)
+    action_distances = np.abs(env.angles-bearing)
+    adis = np.abs((action_distances-action_distances.max())) + 1.0
+    probs = adis/float(np.sum(adis))
+    actions_and_probs = list(zip(env.action_space, probs))
+    return actions_and_probs
 
-class MCTS(object):
-    def __init__(self, env, random_state, c_uct=1.4, n_playouts=1000, rollout_length=300):
+def equal_node_probs_fn(state, state_index, env):
+    probs = np.ones(len(env.action_space))/float(len(env.action_space))
+    actions_and_probs = list(zip(env.action_space, probs))
+    return actions_and_probs
+
+
+class PMCTS(object):
+    def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, n_playouts=1000, rollout_length=300):
         self.env = env
         self.rdn = random_state
-        self.root = TreeNode(None,  name=(0,-1))
-        self.c_uct = c_uct
+        self.node_probs_fn = node_probs_fn
+        self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
+        self.c_puct = c_puct
         self.n_playouts = n_playouts
         self.tree_subs_ = []
         self.warn_at_tree_size = 1000
@@ -87,7 +98,6 @@ class MCTS(object):
         for i in node.children_.keys():
             print(node.children_[i].__dict__)
         return [node.children_[i].__dict__ for i in node.children_.keys()]
-
 
     def playout(self, playout_num, state, state_index):
         # set new root of MCTS (we've taken a step in the real game)
@@ -106,8 +116,7 @@ class MCTS(object):
                     logging.debug('PLAYOUT INIT STATE {}: expanding leaf at state {} robot: {}'.format(init_state_index, state_index, rs))
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
-                    probs = np.ones(len(self.env.action_space))/float(len(self.env.action_space))
-                    actions_and_probs = list(zip(self.env.action_space, probs))
+                    actions_and_probs = self.node_probs_fn(state, state_index, self.env)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
                     # otherwise, playout till the end
@@ -128,8 +137,8 @@ class MCTS(object):
                 return won
             else:
                 # greedy select
-                # trys actions based on c_uct
-                action, new_node = node.get_best(self.c_uct)
+                # trys actions based on c_puct
+                action, new_node = node.get_best(self.c_puct)
                 actions.append(action)
                 next_state, value, finished, _ = self.env.step(state, state_index, action)
                 # time step
@@ -241,7 +250,7 @@ class MCTS(object):
 
     def reset_tree(self):
         logging.warn("Resetting tree")
-        self.root = TreeNode(None)
+        self.root = PTreeNode(None, prior_prob=1.0)
         self.tree_subs_ = []
 
 def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100, 
@@ -259,7 +268,9 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     state = true_env.reset(max_goal_distance)
 
     mcts_rdn = np.random.RandomState(seed+1)
-    mcts = MCTS(env=deepcopy(true_env),random_state=mcts_rdn,
+    #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=equal_node_probs_fn,
+    #            n_playouts=n_playouts,rollout_length=max_rollout_length)
+    pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
                 n_playouts=n_playouts,rollout_length=max_rollout_length)
 
     t = 0
@@ -272,8 +283,8 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
         # search for best action
         st = time.time()
-        action, action_probs = mcts.get_best_action(deepcopy(state), t)
-        mcts.update_tree_move(action)
+        action, action_probs = pmcts.get_best_action(deepcopy(state), t)
+        pmcts.update_tree_move(action)
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
