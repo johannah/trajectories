@@ -273,6 +273,7 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         # search for best action
         st = time.time()
         action, action_probs = mcts.get_best_action(deepcopy(state), t)
+        #mcts.reset_tree()
         mcts.update_tree_move(action)
         et = time.time()
 

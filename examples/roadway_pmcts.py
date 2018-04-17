@@ -67,9 +67,21 @@ def goal_node_probs_fn(state, state_index, env):
     # TODO make env take in state to give goal/robot
     bearing = env.get_goal_bearing(state)
     action_distances = np.abs(env.angles-bearing)
-    adis = np.abs((action_distances-action_distances.max())) + 1.0
-    probs = adis/float(np.sum(adis))
-    actions_and_probs = list(zip(env.action_space, probs))
+    actions_and_distances = list(zip(env.action_space, action_distances))
+    best_angles = sorted(actions_and_distances, key=lambda tup: tup[1])
+    best_actions = [b[0] for b in best_angles]
+    best_angles = np.ones(len(env.action_space))
+    best_angles[len(env.action_space)/2:len(env.action_space)/3] = 2
+    best_angles[:len(env.action_space)/2] = 3
+    best_angles[0] = 3.5
+    best_angles = best_angles/float(best_angles.sum())
+    
+    unsorted_actions_and_probs = list(zip(best_actions, best_angles))
+    actions_and_probs = sorted(unsorted_actions_and_probs, key=lambda tup: tup[0])
+
+    print('bearing', bearing)
+    print(actions_and_distances)
+    print(actions_and_probs)
     return actions_and_probs
 
 def equal_node_probs_fn(state, state_index, env):
@@ -194,7 +206,7 @@ class PMCTS(object):
         return value, rollout_actions, state, state_index
 
 
-    def get_action_probs(self, state, state_index, temp=1e-3):
+    def get_action_probs(self, state, state_index, temp=1e-2):
         # low temp -->> argmax
         self.nodes_seen[state_index] = []
         won = 0
@@ -208,10 +220,18 @@ class PMCTS(object):
         else:
             logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
             #embed()
+        #if state_index == 8:
+        #    print('state_index')
+        #    embed()
             
         self.env.set_state(state, state_index)
-        act_visits = [(act,node.n_visits_) for act, node in self.root.children_.items()]
-        actions, visits = zip(*act_visits)
+        act_visits = [(act,float(node.n_visits_)) for act, node in self.root.children_.items()]
+        try:
+            actions, visits = zip(*act_visits)
+        except Exception, e:
+            print(e)
+            embed()
+
         action_probs = softmax(1.0/temp*np.log(visits))
         return actions, action_probs
 
@@ -250,7 +270,7 @@ class PMCTS(object):
 
     def reset_tree(self):
         logging.warn("Resetting tree")
-        self.root = PTreeNode(None, prior_prob=1.0)
+        self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
         self.tree_subs_ = []
 
 def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100, 
@@ -262,10 +282,11 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
                'n_playouts':n_playouts, 'seed':seed,
                'max_rollout_length':max_rollout_length}
 
+    states = []
     # restart at same position every time
     rdn = np.random.RandomState(seed)
     true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
-    state = true_env.reset(max_goal_distance)
+    state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance)
 
     mcts_rdn = np.random.RandomState(seed+1)
     #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=equal_node_probs_fn,
@@ -277,27 +298,31 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     finished = False
     # draw initial state
     true_env.render(state,t)
+    print("SEED", seed)
     while not finished:
+        states.append(state)
         ry,rx = true_env.get_robot_state(state)
         current_goal_distance = true_env.get_distance_to_goal()
 
         # search for best action
         st = time.time()
         action, action_probs = pmcts.get_best_action(deepcopy(state), t)
-        pmcts.update_tree_move(action)
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
-        true_env.render(next_state,t)
 
         results['decision_ts'].append(et-st)
         results['dis_to_goal'].append(current_goal_distance)
         results['actions'].append(action)
         if not finished:
+            pmcts.update_tree_move(action)
+            #pmcts.reset_tree()
             state = next_state
             t+=1
         else:
             results['reward'] = reward
+            states.append(next_state)
+        true_env.render(next_state, t)
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -331,7 +356,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     seed = args.seed
     goal_dis = args.max_goal_distance
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     all_results = []
     for i in range(args.num_episodes):
