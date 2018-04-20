@@ -32,7 +32,7 @@ def log_prob_from_logits(x):
     return x - m - torch.log(torch.sum(torch.exp(x - m), dim=axis, keepdim=True))
 
 
-def discretized_mix_logistic_loss(prediction, target):
+def discretized_mix_logistic_loss(prediction, target, use_cuda=False):
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
     l = prediction
@@ -58,7 +58,11 @@ def discretized_mix_logistic_loss(prediction, target):
     # here and below: getting the means and adjusting them based on preceding
     # sub-pixels
     x = x.contiguous()
-    x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]).cuda(), requires_grad=False)
+    if use_cuda:
+        x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]).cuda(), requires_grad=False)
+    else:
+        x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]), requires_grad=False)
+
     # ugggghhh
     # m2 = (means[:, :, :, 1, :] + coeffs[:, :, :, 0, :]
     #             * x[:, :, :, 0, :]).view(xs[0], xs[1], xs[2], 1, nr_mix)
@@ -110,7 +114,7 @@ def discretized_mix_logistic_loss(prediction, target):
     return -out.mean()
 
 
-def discretized_mix_logistic_loss_1d(x, l):
+def discretized_mix_logistic_loss_1d(x, l, use_cuda=False):
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
     x = x.permute(0, 2, 3, 1)
@@ -127,7 +131,10 @@ def discretized_mix_logistic_loss_1d(x, l):
     # here and below: getting the means and adjusting them based on preceding
     # sub-pixels
     x = x.contiguous()
-    x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]).cuda(), requires_grad=False)
+    if use_cuda:
+        x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]).cuda(), requires_grad=False)
+    else:
+        x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]), requires_grad=False)
 
     # means = torch.cat((means[:, :, :, 0, :].unsqueeze(3), m2, m3), dim=3)
     centered_x = x - means

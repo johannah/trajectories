@@ -48,7 +48,7 @@ class FroggerDataset(Dataset):
         return image,reward
 
 
-def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_savepath):
+def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
     train_loss = []
     for batch_idx, (data, _) in enumerate(train_loader):
         start_time = time.time()
@@ -63,7 +63,7 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_sav
         z_q_x.retain_grad()
 
         #loss_1 = F.binary_cross_entropy(x_tilde, x)
-        loss_1 = discretized_mix_logistic_loss(x_tilde,2*x-1)
+        loss_1 = discretized_mix_logistic_loss(x_tilde,2*x-1,use_cuda=do_use_cuda)
         loss_1.backward(retain_graph=True)
         model.embedding.zero_grad()
         z_e_x.backward(z_q_x.grad, retain_graph=True)
@@ -73,7 +73,7 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_sav
         loss_3 = .25*F.mse_loss(z_e_x, z_q_x.detach())
         loss_3.backward()
         optimizer.step()
-        train_loss.append(to_scalar([loss_1, loss_2]))
+        train_loss.append(to_scalar([loss_1, loss_2, loss_3]))
         if not batch_idx%10:
             print 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {} Time: {}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -82,25 +82,30 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda,model_sav
                 time.time() - start_time
             )
 
-    if do_checkpoint:
-        state = {'epoch':epoch,
-                 'state_dict':model.state_dict(),
-                 'loss':np.asarray(train_loss).mean(0),
-                 'optimizer':optimizer.state_dict(),
-                 }
-        save_checkpoint(state, filename=model_savepath)
-    return model, optimizer
+    state = {'epoch':epoch,
+             'state_dict':model.state_dict(),
+             'loss':np.asarray(train_loss).mean(0),
+             'optimizer':optimizer.state_dict(),
+             }
+    return model, optimizer, state
 
-def test(x,model,nr_logistic_mix,save_img_path=None):
+def test(x,model,nr_logistic_mix,do_use_cuda=False,save_img_path=None):
     x_d, z_e_x, z_q_x, latents = model(x)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    x_cat = torch.cat([x, x_tilde], 0)
-    images = x_cat.cpu().data
+    loss_1 = discretized_mix_logistic_loss(x_d,2*x-1,use_cuda=do_use_cuda)
+    loss_2 = F.mse_loss(z_q_x, z_e_x.detach())
+    loss_3 = .25*F.mse_loss(z_e_x, z_q_x.detach())
+    test_loss = to_scalar([loss_1, loss_2, loss_3])
+
     if save_img_path is not None:
+        idx = np.random.randint(0, len(test_data))
+        x_cat = torch.cat([x[idx], x_tilde[idx]], 0)
+        images = x_cat.cpu().data
         oo = 0.5*np.array(x_tilde.cpu().data)[0,0]+0.5
         ii = np.array(x.cpu().data)[0,0]
         imwrite(save_img_path, oo)
         imwrite(save_img_path.replace('.png', 'orig.png'), ii)
+    return test_loss
 
 def save_checkpoint(state, is_best=False, filename='model.pkl'):
     torch.save(state, filename)
@@ -116,10 +121,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
-    parser.add_argument('-s', '--model_savepath', default=None)
+    parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
     parser.add_argument('-l', '--model_loadpath', default=None)
     parser.add_argument('-z', '--num_z', default=16, type=int)
     parser.add_argument('-e', '--num_episodes', default=150, type=int)
+    parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
 
     args = parser.parse_args()
     train_data_dir = os.path.join(args.datadir, 'imgs_train')
@@ -145,25 +151,26 @@ if __name__ == '__main__':
             print('could not find checkpoint at {}'.format(args.model_loadpath))
 
     data_train_loader = DataLoader(FroggerDataset(train_data_dir,
-                                   transform=transforms.ToTensor()),
+                                   transform=transforms.ToTensor(), limit=args.num_train_limit),
                                    batch_size=64, shuffle=True)
     data_test_loader = DataLoader(FroggerDataset(test_data_dir,
                                   transform=transforms.ToTensor()),
                                   batch_size=32, shuffle=True)
-    test_data = list(data_test_loader)
-
-    for i in xrange(epoch,epoch+args.num_episodes):
-        vmodel, opt = train(i,vmodel,opt,data_train_loader,
-                            do_checkpoint=True,do_use_cuda=use_cuda,
-                            model_savepath=args.model_savepath)
-        idx = np.random.randint(0, len(test_data))
+    test_data = data_train_loader
+    for batch_idx, (test_data, _) in enumerate(data_test_loader):
         if use_cuda:
-            x_test = Variable(test_data[idx][0]).cuda()
+            x_test = Variable(test_data).cuda()
         else:
-            x_test = Variable(test_data[idx][0])
+            x_test = Variable(test_data)
 
-        test_img = args.model_savepath.replace('.pkl', '_test.png')
-        test(x_test,vmodel,nr_logistic_mix,save_img_path=test_img)
+    test_img = args.model_savepath.replace('.pkl', '_test.png')
+    for i in xrange(epoch,epoch+args.num_episodes):
+        vmodel, opt, state = train(i,vmodel,opt,data_train_loader,
+                            do_checkpoint=True,do_use_cuda=use_cuda)
+        test_loss = test(x_test,vmodel,nr_logistic_mix,do_use_cuda=use_cuda,save_img_path=test_img)
+        print('test_loss {}'.format(test_loss))
+        state['test_loss'] = test_loss
+        save_checkpoint(state, filename=args.model_savepath)
 
 
 

@@ -2,7 +2,6 @@ import matplotlib
 matplotlib.use('TkAgg')
 import os
 from subprocess import Popen
-import gym
 import matplotlib.pyplot as plt
 import numpy as np
 from IPython import embed
@@ -61,7 +60,7 @@ class Particle():
     def step(self, timestep):
         # (meters/second) * second
         # TODO angle
-        rads = np.deg2rad(self.angle) 
+        rads = np.deg2rad(self.angle)
         #if self.name == 'robot':
         #    print("robot step", self.y, self.x, self.speed)
         self.y = self.y + self.speed*np.sin(rads)*timestep
@@ -80,12 +79,12 @@ class Particle():
     def plot(self,newy,newx):
         if self.clear_map:
             self.local_map*=0
-    
+
         hit_wall = False
         # markersize is always positive so only need to check x/ysize
-        
+
         newy = int(np.rint(newy))
-        newx = int(np.rint(newx)) 
+        newx = int(np.rint(newx))
         newyplus = int(np.rint(newy+self.ymarkersize))
         newxplus = int(np.rint(newx+self.xmarkersize))
 
@@ -95,10 +94,10 @@ class Particle():
         if not self.entire_body_outside:
             # subtract one because of the way range works
             if ((newyplus-1 < 0)  or (newxplus-1 < 0) or
-                (newy < 0) or (newx < 0) or 
+                (newy < 0) or (newx < 0) or
                 (newyplus-1 > self.world.ysize-1)  or
                 (newxplus-1 > self.world.xsize-1) or
-                (newy > self.world.ysize-1)  or 
+                (newy > self.world.ysize-1)  or
                 (newx > self.world.xsize-1)):
                 #print('robot bounce',newy, newx, newyplus, newxplus)
                 self.wall_bounce(True)
@@ -106,11 +105,11 @@ class Particle():
             # only bounce if all are outside of the bounds
             if (((newyplus < 0)  and (newy < 0)) or
                 ((newyplus > self.world.ysize-1) and (newy > self.world.ysize-1)) or
-               ((newxplus < 0) and (newx < 0)) or 
+               ((newxplus < 0) and (newx < 0)) or
                ((newxplus > self.world.xsize-1) and (newx > self.world.xsize-1))):
 
                 self.wall_bounce(True)
-                
+
             # make edges within border
             if (newyplus>= self.world.ysize-1):
                 newyplus = self.world.ysize-1
@@ -134,17 +133,17 @@ class Particle():
         #    print("{},{}".format( newy,newx))
         #    print("{},{}".format( newyplus,newxplus))
         #    print('-------------------')
- 
+
         if self.alive:
             if self.name == 'goal':
                 # goal is a special cross
                 y, x = int(self.y), int(self.x)
-                inds = np.array([(y,   x), 
-                                 (y+1, x), 
-                                 (y-1, x), 
-                                 (y,   x+1), 
+                inds = np.array([(y,   x),
+                                 (y+1, x),
+                                 (y-1, x),
+                                 (y,   x+1),
                                  (y,   x-1)]).T
- 
+
             else:
                 y = range(newy, newyplus)
                 x = range(newx, newxplus)
@@ -164,7 +163,7 @@ class Particle():
 
 
 class RoadEnv():
-    def __init__(self, random_state, ysize=40, xsize=40, 
+    def __init__(self, random_state, ysize=40, xsize=40,
                  timestep=1,level=1, num_angles=8):
         # TODO - what if episode already exists in savedir
         self.rdn = random_state
@@ -183,10 +182,10 @@ class RoadEnv():
         # make max steps twice the steps required to cross diagonally across the road
         self.max_steps = int(3*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
         #      90
-        #      | 
-        # 180 --- 0 
         #      |
-        #     270 
+        # 180 --- 0
+        #      |
+        #     270
         #self.angles = np.linspace(0, 180, 5)[::-1]
         #self.speeds = np.linspace(.1,self.max_speed,3)
         self.angles = np.linspace(-180, 180, num_angles, endpoint=False)
@@ -270,7 +269,7 @@ class RoadEnv():
 
         lanes = list(np.arange(self.safezone+1, median1-self.car_ysize, self.car_ysize))
         lanes.extend(list(np.arange(median2+1, self.ysize-self.safezone-self.car_ysize, self.car_ysize)))
-        
+
         mx = max(max_xcarsize,5)
         cars = {
                 'truck':{'color':45, 'speed':np.linspace(.2,.5,10),    'xsize':mx, 'angles':[], 'lanes':[]},
@@ -305,18 +304,18 @@ class RoadEnv():
         goal_ymin = max([self.robot.y-goal_distance, 2])
         goal_ymax = min([self.robot.y+goal_distance, self.ysize-2])
         assert goal_ymin > 0
-        assert goal_ymax < self.ysize 
+        assert goal_ymax < self.ysize
         goal_xmin = max([self.robot.x-goal_distance, 2])
         goal_xmax = min([self.robot.x+goal_distance, self.xsize-2])
         assert goal_xmin > 0
-        assert goal_xmax < self.xsize 
- 
+        assert goal_xmax < self.xsize
+
         goal_y = float(self.rdn.randint(goal_ymin,goal_ymax))
         goal_x = float(self.rdn.randint(goal_xmin,goal_xmax))
         self.goal_map = np.zeros((self.ysize, self.xsize), np.uint8)
-        self.goal = Particle(world=self, name='goal', 
+        self.goal = Particle(world=self, name='goal',
                               local_map=self.goal_map,
-                              init_y=goal_y, init_x=goal_x, 
+                              init_y=goal_y, init_x=goal_x,
                               angle=0, speed=0.0, clear_map=True,
                               bounce=True, entire_body_outside=False,
                               ymarkersize=1,xmarkersize=1,
@@ -329,7 +328,7 @@ class RoadEnv():
 
         self.plotted = False
         plt.close()
-       
+
         # robot shape
         yrsize,xrsize=1,1
         self.safezone = yrsize*1
@@ -338,9 +337,9 @@ class RoadEnv():
         init_x = float(self.rdn.randint(xrsize+1,self.xsize-(xrsize+1)))
         self.robot_map = np.zeros((self.ysize, self.xsize), np.uint8)
 
-        self.robot = Particle(world=self,  name='robot',  
+        self.robot = Particle(world=self,  name='robot',
                               local_map=self.robot_map,
-                              init_y=init_y, init_x=init_x, 
+                              init_y=init_y, init_x=init_x,
                               angle=0, speed=0.0, clear_map=True,
                               bounce=False, entire_body_outside=False, # robot must not bounce
                               xmarkersize=xrsize, ymarkersize=yrsize,
@@ -350,8 +349,8 @@ class RoadEnv():
         bad_goal = True
         while bad_goal:
             self.create_goal(goal_distance)
-            bad_goal, _ = self.check_state(0, True) 
- 
+            bad_goal, _ = self.check_state(0, True)
+
         self.configure_cars(max_xcarsize)
         self.obstacles = {}
         self.cnt = 0
@@ -373,14 +372,14 @@ class RoadEnv():
         self.road_map *=0
         dead_obstacles = []
         for n,o in self.obstacles.iteritems():
-            alive = o.step(self.timestep) 
+            alive = o.step(self.timestep)
             if not alive:
                 dead_obstacles.append(n)
 
         for n in dead_obstacles:
             del self.obstacles[n]
         self.add_frogger_obstacles()
-      
+
     def add_frogger_obstacles(self):
         level = self.level
         if level:
@@ -394,16 +393,16 @@ class RoadEnv():
                         else:
                             init_x = self.xsize-1-car['xsize']
                             leading_edge = 1
-                        self.obstacles[self.cnt] = Particle(world=self, name=self.cnt, 
+                        self.obstacles[self.cnt] = Particle(world=self, name=self.cnt,
                                                      local_map=self.road_map,
-                                                     init_y=lane, 
-                                                     init_x=init_x, 
-                                                     angle=angle, 
+                                                     init_y=lane,
+                                                     init_x=init_x,
+                                                     angle=angle,
                                                      speed=self.rdn.choice(car['speed']),
                                                      bounce=False,
                                                      color=car['color'],
                                                      ymarkersize=self.car_ysize,
-                                                     xmarkersize=car['xsize']*leading_edge) 
+                                                     xmarkersize=car['xsize']*leading_edge)
                         self.cnt +=1
 
     def set_road_maps(self, road_maps):
@@ -417,19 +416,19 @@ class RoadEnv():
         state = (gstate, rstate, road_map)
         #state = [gstate,rstate]
         return state
- 
+
     def set_state(self, state, state_index):
         self.robot.alive = True
         ry = float(state[1][0]*self.ysize)
         rx = float(state[1][1]*self.xsize)
-        #print("want to set robot to", ry,rx) 
+        #print("want to set robot to", ry,rx)
         self.robot.set_state(ry,rx)
         gy =  float(state[0][0]*self.ysize)
         gx =  float(state[0][1]*self.xsize)
         self.goal.set_state(gy,gx)
         finished, reward = self.check_state(state_index, self.robot.alive)
         return finished, reward
-       
+
     def get_road_state(self, state_index):
         try:
             assert(0 <= state_index)
@@ -442,10 +441,10 @@ class RoadEnv():
 
     def set_action_values_from_index(self, action_index):
         assert 0 <= action_index < len(self.action_space)
-        action_key = self.actions[action_index] 
+        action_key = self.actions[action_index]
         speed, angle = action_key[0], action_key[1]
         self.robot.speed = speed
-        self.robot.angle = angle 
+        self.robot.angle = angle
         return speed, angle
 
     def step(self, state, state_index, action_index):
@@ -460,8 +459,8 @@ class RoadEnv():
             # robot is alive will say if the robot ran into a wall
             robot_is_alive = self.robot.step(self.timestep)
             #print('##################################')
-            #print('## rstep alive:{} action: {} speed: {} angle {} ({},{}) step {}'.format(robot_is_alive, 
-            #      action_index, self.robot.speed, self.robot.angle, 
+            #print('## rstep alive:{} action: {} speed: {} angle {} ({},{}) step {}'.format(robot_is_alive,
+            #      action_index, self.robot.speed, self.robot.angle,
             #      round(self.robot.y,2), round(self.robot.x,2), state_index))
             #print('##################################')
 
@@ -494,16 +493,16 @@ class RoadEnv():
             self.ax.set_aspect('equal')
             self.ax.set_ylim(0,self.ysize)
             self.ax.set_xlim(0,self.xsize)
- 
+
         self.shown.set_data(self.road_maps[state_index]+self.robot_map+self.goal_map)
         plt.show()
         plt.pause(.0001)
 
 if __name__ == '__main__':
     # generate training data
-    num_episodes = 1000
-    save_path = 'saved/imgs_train/'
-    seed = 34334
+    num_episodes = 50
+    save_path = 'saved/imgs_test/'
+    seed = 334
     rdn = np.random.RandomState(seed)
     env = RoadEnv(random_state=rdn, ysize=40, xsize=40, level=6)
     if not os.path.exists(save_path):
