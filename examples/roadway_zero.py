@@ -343,8 +343,6 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
 if __name__ == "__main__":
     import argparse  
-    # this seems to work well
-    #python roadway_pmcts.py -y 25 -x 25 --seed 45 -r 100  -p 100 -l 6
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
     parser.add_argument('-e', '--num_episodes', type=int, default=10, help='num traces to run')

@@ -23,6 +23,7 @@ from glob import glob
 import os
 from imageio import imread, imwrite
 from PIL import Image
+
 class Particle():
     def __init__(self, world, name, local_map, init_y, init_x,
                  angle, speed, clear_map=False,
@@ -173,9 +174,9 @@ class RoadEnv():
         self.xsize = xsize
         self.experiment_name = "None"
 
-        self.lose_reward = -1
+        self.lose_reward = -10
         self.step_reward = 0
-        self.win_reward = 100
+        self.win_reward = 10
         self.timestep = timestep
         self.max_speed = 1.0
         # average speed
@@ -201,11 +202,12 @@ class RoadEnv():
         return np.sqrt((self.goal.y-self.robot.y)**2 + (self.goal.x-self.robot.x)**2)
 
     def get_lose_reward(self, state_index):
-        #return self.lose_reward + self.lose_reward/float(state_index+1)
-        return self.lose_reward
+        return self.lose_reward + self.lose_reward/float(state_index+1)
+        #return self.lose_reward
 
-    def get_timeout_reward(self, state_index):
-        return 0.0
+    def get_timeout_reward(self, steps):
+        # more steps is smaller penalty
+        return self.lose_reward/float(steps+.1)
 
     def get_win_reward(self, state_index):
         return self.win_reward + self.win_reward/float(state_index+1)
@@ -213,7 +215,6 @@ class RoadEnv():
     def check_state(self, state_index, robot_is_alive):
         lose_reward = self.get_lose_reward(state_index)
         win_reward = self.get_win_reward(state_index)
-        timeout_reward = self.get_timeout_reward(state_index)
         if state_index > self.max_steps-4:
             return True, lose_reward
         elif not robot_is_alive:
@@ -497,4 +498,20 @@ class RoadEnv():
         self.shown.set_data(self.road_maps[state_index]+self.robot_map+self.goal_map)
         plt.show()
         plt.pause(.0001)
+
+if __name__ == '__main__':
+    # generate training data
+    num_episodes = 1000
+    save_path = 'saved/imgs_train/'
+    seed = 34334
+    rdn = np.random.RandomState(seed)
+    env = RoadEnv(random_state=rdn, ysize=40, xsize=40, level=6)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    for e in range(num_episodes):
+        env.reset()
+        for t in range(env.road_maps.shape[0]):
+            name = os.path.join(save_path,'seed_{}_episode_{}_frame_{}.png'.format(seed, e, t))
+            imwrite(name,env.road_maps[t])
+
 
