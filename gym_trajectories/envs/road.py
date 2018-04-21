@@ -501,7 +501,7 @@ class RoadEnv():
 if __name__ == '__main__':
     # generate training data
     num_episodes = 50
-    save_path = 'saved/imgs_test/'
+    save_path = '../saved/imgs_test/'
     seed = 334
     rdn = np.random.RandomState(seed)
     env = RoadEnv(random_state=rdn, ysize=40, xsize=40, level=6)
