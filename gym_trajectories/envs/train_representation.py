@@ -115,7 +115,7 @@ def save_checkpoint(state, is_best=False, filename='model.pkl'):
 
 if __name__ == '__main__':
     import argparse
-    default_base_datadir = 'saved/'
+    default_base_datadir = '../saved/'
     default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
