@@ -3,12 +3,26 @@
 # http://mcts.ai/pubs/mcts-survey-master.pdf
 # https://github.com/junxiaosong/AlphaZero_Gomoku
 
+import matplotlib.pyplot as plt
+from imageio import imwrite
 from gym_trajectories.envs.road import RoadEnv
 import time
 import numpy as np
 from IPython import embed
 from copy import deepcopy
 import logging
+import os
+import sys
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from torchvision import datasets, transforms
+from torch.autograd import Variable
+
+from gym_trajectories.envs.vq_vae import AutoEncoder, to_scalar
+from gym_trajectories.envs.utils import discretized_mix_logistic_loss
+from gym_trajectories.envs.utils import sample_from_discretized_mix_logistic
 
 def softmax(x):
     assert len(x.shape) == 1
@@ -89,6 +103,14 @@ def equal_node_probs_fn(state, state_index, env):
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
 
+def get_vq_from_road(road_state):
+    road_state = Variable(transforms.ToTensor()(road_state[:,:,None].astype(np.float32)))
+    x_d, z_e_x, z_q_x, latents = vmodel(road_state[None])
+    vroad_state = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    vroad_state = vroad_state[0,0].data.numpy() #.astype(np.uint8)
+    vroad_state = (vroad_state*255).astype(np.uint8)
+    return vroad_state
+
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, n_playouts=1000, rollout_length=300):
@@ -121,10 +143,14 @@ class PMCTS(object):
         node = self.root
         actions = []
         won = False
+ 
+        state = [state[0], state[1], get_vq_from_road(state[2])]
         while True:
             rs = self.env.get_robot_state(state)
+
             if node.is_leaf():
                 if not finished:
+
                     logging.debug('PLAYOUT INIT STATE {}: expanding leaf at state {} robot: {}'.format(init_state_index, state_index, rs))
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
@@ -155,7 +181,7 @@ class PMCTS(object):
                 next_state, value, finished, _ = self.env.step(state, state_index, action)
                 # time step
                 state_index +=1
-                state = next_state
+                state = [next_state[0], next_state[1], get_vq_from_road(next_state[2])]
                 node = new_node
 
     def get_rollout_action(self, state):
@@ -170,11 +196,13 @@ class PMCTS(object):
     def rollout_from_state(self, state, state_index):
         logging.debug('-------------------------------------------')
         logging.debug('starting random rollout from state: {}'.format(state_index))
+        # comes in already transformed
         init_state = state
         init_index = state_index
         rollout_actions = []
         rollout_states = []
         rollout_robot_positions = []
+
         try:
             finished,value = self.env.set_state(state, state_index)
             if finished:
@@ -187,7 +215,9 @@ class PMCTS(object):
                     rollout_robot_positions.append(rs)
                     rollout_states.append(state)
                     rollout_actions.append(a)
-                    state, reward, finished,_ = self.env.step(state, state_index, a)
+                    self.env.set_state(state)
+                    next_state, reward, finished,_ = self.env.step(state, state_index, a)
+                    state = [next_state[0], next_state[1], get_vq_from_road(next_state[2])]
                     state_index+=1
                     c+=1
                     if finished:
@@ -346,8 +376,8 @@ if __name__ == "__main__":
     # this seems to work well
     #python roadway_pmcts.py -y 25 -x 25 --seed 45 -r 100  -p 100 -l 6
 
-    default_base_datadir = '../saved/'
-    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
+    default_base_datadir = '../gym_trajectories/saved/'
+    default_model_savepath = os.path.join(default_base_datadir, 'cars_only_train.pkl')
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
     parser.add_argument('-e', '--num_episodes', type=int, default=10, help='num traces to run')
@@ -369,15 +399,17 @@ if __name__ == "__main__":
     if use_cuda:
         print("using gpu")
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=num_z).cuda()
+
     else:
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=num_z)
     opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
     epoch = 0
     if os.path.exists(args.model_loadpath):
-        model_dict = torch.load(args.model_loadpath)
-        vmodel.load_state_dict(model_dict['state_dict'])
-        opt.load_state_dict(model_dict['optimizer'])
-        epoch =  model_dict['epoch']
+        vqvae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
+        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
+        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
+        opt.load_state_dict(vqvae_model_dict['optimizer'])
+        epoch = vqvae_model_dict['epoch']
         print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
     else:
         print('could not find checkpoint at {}'.format(args.model_loadpath))

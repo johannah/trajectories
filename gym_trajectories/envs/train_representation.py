@@ -34,12 +34,12 @@ class FroggerDataset(Dataset):
     def __getitem__(self, idx):
         img_name = self.indexes[idx]
         image = imread(img_name)
-        goal_val = 254
-        goal_pixel = np.where(image==goal_val)
-        image[goal_pixel[0]+1,goal_pixel[1]] = goal_val
-        image[goal_pixel[0]-1,goal_pixel[1]] = goal_val
-        image[goal_pixel[0],goal_pixel[1]+1] = goal_val
-        image[goal_pixel[0],goal_pixel[1]-1] = goal_val
+        #goal_val = 254
+        #goal_pixel = np.where(image==goal_val)
+        #image[goal_pixel[0]+1,goal_pixel[1]] = goal_val
+        #image[goal_pixel[0]-1,goal_pixel[1]] = goal_val
+        #image[goal_pixel[0],goal_pixel[1]+1] = goal_val
+        #image[goal_pixel[0],goal_pixel[1]-1] = goal_val
         image = image[:,:,None].astype(np.float32)
         reward = int(img_name.split('_')[-1].split('.png')[0])
         if self.transform is not None:

@@ -211,7 +211,7 @@ class RoadEnv():
     def get_win_reward(self, state_index):
         return self.win_reward + self.win_reward/float(state_index+1)
 
-    def check_state(self, state_index, robot_is_alive):
+    def check_state(self, state, robot_is_alive, state_index):
         lose_reward = self.get_lose_reward(state_index)
         win_reward = self.get_win_reward(state_index)
         if state_index > self.max_steps-4:
@@ -220,8 +220,8 @@ class RoadEnv():
             return True, lose_reward
         else:
             # check for collisions
-            ry, rx = np.where(self.robot_map>0)
-            road_map = self.road_maps[state_index]
+            ry, rx = self.get_robot_state(state)
+            road_map = state[2]
             # if particle is able to collide with other agents
             if road_map[ry,rx].sum()>0:
                 # smaller lose if you lasted longer
@@ -232,8 +232,8 @@ class RoadEnv():
                 return False, self.step_reward
 
     def get_robot_state(self,state):
-        ry = state[1][0]*self.ysize
-        rx = state[1][1]*self.xsize
+        ry = int(np.rint(state[1][0]*self.ysize))
+        rx = int(np.rint(state[1][1]*self.xsize))
         return (ry,rx)
 
     def get_goal_state(self,state):
@@ -349,7 +349,9 @@ class RoadEnv():
         bad_goal = True
         while bad_goal:
             self.create_goal(goal_distance)
-            bad_goal, _ = self.check_state(0, True)
+            si = 0
+            s = self.get_state(si)
+            bad_goal, _ = self.check_state(s, True, si)
 
         self.configure_cars(max_xcarsize)
         self.obstacles = {}
@@ -426,7 +428,7 @@ class RoadEnv():
         gy =  float(state[0][0]*self.ysize)
         gx =  float(state[0][1]*self.xsize)
         self.goal.set_state(gy,gx)
-        finished, reward = self.check_state(state_index, self.robot.alive)
+        finished, reward = self.check_state(state, self.robot.alive, state_index)
         return finished, reward
 
     def get_road_state(self, state_index):
@@ -467,7 +469,7 @@ class RoadEnv():
             next_state_index = state_index + 1
             next_state = self.get_state(next_state_index)
             # reward for time step
-            finished, reward = self.check_state(next_state_index, robot_is_alive)
+            finished, reward = self.check_state(next_state, robot_is_alive, next_state_index)
             return next_state, reward, finished, ''
 
     def close_plot(self):
