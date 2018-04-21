@@ -475,9 +475,12 @@ class RoadEnv():
     def close_plot(self):
         plt.clf()
         plt.close()
-        del self.fig
-        del self.ax
-        del self.shown
+        try:
+            del self.fig
+            del self.ax
+            del self.shown
+        except:
+            pass
         self.plotted = False
 
     def render(self, state, state_index):

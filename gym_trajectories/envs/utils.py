@@ -218,6 +218,9 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     temp = torch.FloatTensor(logit_probs.size())
     if l.is_cuda : temp = temp.cuda()
     temp.uniform_(1e-5, 1. - 1e-5)
+    # hack to make deterministic JRH
+    # could also just take argmax of logit_probs
+    temp = temp*0.0+0.5
     temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
 
@@ -233,6 +236,9 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     if l.is_cuda : u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
     u = Variable(u)
+    # hack to make deterministic JRH
+    #u = u*0.0 + 0.5
+
     if only_mean:
         x = means
     else:
