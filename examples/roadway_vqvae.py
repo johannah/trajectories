@@ -3,12 +3,26 @@
 # http://mcts.ai/pubs/mcts-survey-master.pdf
 # https://github.com/junxiaosong/AlphaZero_Gomoku
 
+import matplotlib.pyplot as plt
+from imageio import imwrite
 from gym_trajectories.envs.road import RoadEnv
 import time
 import numpy as np
 from IPython import embed
 from copy import deepcopy
 import logging
+import os
+import sys
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from torchvision import datasets, transforms
+from torch.autograd import Variable
+
+from gym_trajectories.envs.vq_vae import AutoEncoder, to_scalar
+from gym_trajectories.envs.utils import discretized_mix_logistic_loss
+from gym_trajectories.envs.utils import sample_from_discretized_mix_logistic
 
 def softmax(x):
     assert len(x.shape) == 1
@@ -89,6 +103,14 @@ def equal_node_probs_fn(state, state_index, env):
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
 
+def get_vq_from_road(road_state):
+    road_state = Variable(transforms.ToTensor()(road_state[:,:,None].astype(np.float32)))
+    x_d, z_e_x, z_q_x, latents = vmodel(road_state[None])
+    vroad_state = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    vroad_state = vroad_state[0,0].data.numpy() #.astype(np.uint8)
+    vroad_state = (vroad_state*255).astype(np.uint8)
+    return vroad_state
+
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, n_playouts=1000, rollout_length=300):
@@ -121,10 +143,18 @@ class PMCTS(object):
         node = self.root
         actions = []
         won = False
+ 
+        frames = []
+        vstate = get_vq_from_road(state[2])
+        # stack true state then vstate
+        frames.append((state[2], vstate))
+        state = [state[0], state[1], vstate]
         while True:
             rs = self.env.get_robot_state(state)
+
             if node.is_leaf():
                 if not finished:
+
                     logging.debug('PLAYOUT INIT STATE {}: expanding leaf at state {} robot: {}'.format(init_state_index, state_index, rs))
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
@@ -133,7 +163,8 @@ class PMCTS(object):
                     # if you have a neural network - use it here to bootstrap the value
                     # otherwise, playout till the end
                     # rollout one randomly
-                    value, rand_actions, end_state, end_state_index = self.rollout_from_state(state, state_index)
+                    value, rand_actions, end_state, end_state_index, rframes = self.rollout_from_state(state, state_index)
+                    frames.extend(rframes)
                     actions += rand_actions
                     finished = True
                 else:
@@ -146,7 +177,7 @@ class PMCTS(object):
                     node.n_wins+=1
                     won = True
                     logging.debug('won one with value:{} actions:{}'.format(value, actions))
-                return won
+                return won, frames
             else:
                 # greedy select
                 # trys actions based on c_puct
@@ -155,7 +186,9 @@ class PMCTS(object):
                 next_state, value, finished, _ = self.env.step(state, state_index, action)
                 # time step
                 state_index +=1
-                state = next_state
+                vnext_road_state = get_vq_from_road(next_state[2])
+                state = [next_state[0], next_state[1], vnext_road_state]
+                frames.append((next_state[2], vnext_road_state))
                 node = new_node
 
     def get_rollout_action(self, state):
@@ -170,15 +203,18 @@ class PMCTS(object):
     def rollout_from_state(self, state, state_index):
         logging.debug('-------------------------------------------')
         logging.debug('starting random rollout from state: {}'.format(state_index))
+        # comes in already transformed
         init_state = state
         init_index = state_index
         rollout_actions = []
         rollout_states = []
         rollout_robot_positions = []
+        rframes = []
+
         try:
             finished,value = self.env.set_state(state, state_index)
             if finished:
-                return value, rollout_actions, state, state_index
+                return value, rollout_actions, state, state_index, rframes
             c = 0
             while not finished:
                 if c < self.rollout_length:
@@ -187,7 +223,12 @@ class PMCTS(object):
                     rollout_robot_positions.append(rs)
                     rollout_states.append(state)
                     rollout_actions.append(a)
-                    state, reward, finished,_ = self.env.step(state, state_index, a)
+                    self.env.set_state(state)
+                    next_state, reward, finished,_ = self.env.step(state, state_index, a)
+                    vnext_road_state = get_vq_from_road(next_state[2])
+                    state = [next_state[0], next_state[1], vnext_road_state]
+                    # true and vq state
+                    rframes.append((next_state[2], vnext_road_state))
                     state_index+=1
                     c+=1
                     if finished:
@@ -203,7 +244,7 @@ class PMCTS(object):
         except Exception, e:
             print(e)
             embed()
-        return value, rollout_actions, state, state_index
+        return value, rollout_actions, state, state_index, rframes
 
 
     def get_action_probs(self, state, state_index, temp=1e-2):
@@ -212,11 +253,14 @@ class PMCTS(object):
         won = 0
 
         finished,value = self.env.set_state(state, state_index)
+        all_frames = []
         if not finished:
             for n in range(self.n_playouts):
                 from_state = deepcopy(state)
                 from_state_index = deepcopy(state_index)
-                won+=self.playout(n, from_state, from_state_index)
+                w, fs = self.playout(n, from_state, from_state_index)
+                all_frames.append(fs)
+                won+=w
         else:
             logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
             #embed()
@@ -233,7 +277,7 @@ class PMCTS(object):
             embed()
 
         action_probs = softmax(1.0/temp*np.log(visits))
-        return actions, action_probs
+        return actions, action_probs, all_frames
 
 
     def sample_action(self, state, state_index, temp=1E-3, add_noise=True,
@@ -252,10 +296,10 @@ class PMCTS(object):
         logging.info("mcts starting search for action in state: {}".format(state_index))
         orig_state = deepcopy(state)
         self.env.set_state(state, state_index)
-        acts, probs = self.get_action_probs(state, state_index, temp=1e-3)
+        acts, probs, playout_frames = self.get_action_probs(state, state_index, temp=1e-3)
         act = self.rdn.choice(acts, p=probs)
         logging.info("mcts chose action {} in state: {}".format(act,state_index))
-        return act, probs
+        return act, probs, playout_frames
 
     def update_tree_move(self, action):
         # keep previous info
@@ -297,8 +341,9 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     t = 0
     finished = False
     # draw initial state
-    true_env.render(state,t)
+    #true_env.render(state,t)
     print("SEED", seed)
+    frames = []
     while not finished:
         states.append(state)
         ry,rx = true_env.get_robot_state(state)
@@ -306,7 +351,8 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
         # search for best action
         st = time.time()
-        action, action_probs = pmcts.get_best_action(deepcopy(state), t)
+        action, action_probs, playout_frames = pmcts.get_best_action(deepcopy(state), t)
+        frames.append((state, playout_frames))
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
@@ -322,7 +368,7 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         else:
             results['reward'] = reward
             states.append(next_state)
-        true_env.render(next_state, t)
+        #true_env.render(next_state, t)
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -336,8 +382,32 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
 
+    fpath = 'trials/road-vqvae/seed_{}'.format(seed)
+    try:
+        if not os.path.exists(fpath):
+            os.makedirs(fpath)
+        for ts, (actual_frame, playouts) in enumerate(frames):
+            for pn, playout in enumerate(playouts):
+                for pf, playout_frame in enumerate(playout):
+                    fname = 'seed_{}_truestep_{}_playout_{}_pstep_{}_reward_{}.png'.format(seed, ts, pn, pf, reward)
+
+                    f,ax=plt.subplots(1,3, figsize=(10,3.5))
+                    ax[0].imshow(actual_frame[2], origin='lower')
+                    ax[0].set_title("true state:step: {}".format(ts))
+                    ax[1].imshow(playout_frame[0], origin='lower')
+                    ax[1].set_title("rollout num: {} step: {}".format(pn,pf))
+                    ax[2].imshow(playout_frame[1], origin='lower')
+                    ax[2].set_title("vqvae rollout num: {} step: {}".format(pn,pf))
+                    plt.savefig(os.path.join(fpath,fname))
+                    plt.close()
+
+    except Exception, e:
+        print(e)
+        embed()
+
+
     time.sleep(1)
-    true_env.close_plot()
+    #true_env.close_plot()
     return results
 
 
@@ -346,8 +416,8 @@ if __name__ == "__main__":
     # this seems to work well
     #python roadway_pmcts.py -y 25 -x 25 --seed 45 -r 100  -p 100 -l 6
 
-    default_base_datadir = '../saved/'
-    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
+    default_base_datadir = '../gym_trajectories/saved/'
+    default_model_savepath = os.path.join(default_base_datadir, 'cars_only_train.pkl')
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
     parser.add_argument('-e', '--num_episodes', type=int, default=10, help='num traces to run')
@@ -369,15 +439,17 @@ if __name__ == "__main__":
     if use_cuda:
         print("using gpu")
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=num_z).cuda()
+
     else:
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=num_z)
     opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
     epoch = 0
     if os.path.exists(args.model_loadpath):
-        model_dict = torch.load(args.model_loadpath)
-        vmodel.load_state_dict(model_dict['state_dict'])
-        opt.load_state_dict(model_dict['optimizer'])
-        epoch =  model_dict['epoch']
+        vqvae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
+        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
+        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
+        opt.load_state_dict(vqvae_model_dict['optimizer'])
+        epoch = vqvae_model_dict['epoch']
         print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
     else:
         print('could not find checkpoint at {}'.format(args.model_loadpath))
