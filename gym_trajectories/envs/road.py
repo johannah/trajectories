@@ -75,6 +75,7 @@ class Particle():
         self.y = y
         self.x = x
         self.plot(self.y, self.x)
+        return self.alive
 
     def plot(self,newy,newx):
         if self.clear_map:
@@ -424,11 +425,11 @@ class RoadEnv():
         ry = float(state[1][0]*self.ysize)
         rx = float(state[1][1]*self.xsize)
         #print("want to set robot to", ry,rx)
-        self.robot.set_state(ry,rx)
+        robot_alive = self.robot.set_state(ry,rx)
         gy =  float(state[0][0]*self.ysize)
         gx =  float(state[0][1]*self.xsize)
         self.goal.set_state(gy,gx)
-        finished, reward = self.check_state(state, self.robot.alive, state_index)
+        finished, reward = self.check_state(state, robot_alive, state_index)
         return finished, reward
 
     def get_road_state(self, state_index):
@@ -483,8 +484,19 @@ class RoadEnv():
             pass
         self.plotted = False
 
-    def render(self, state, state_index):
-        self.set_state(state, state_index)
+    def get_state_plot(self, state):
+        self.robot.alive = True
+        ry = float(state[1][0]*self.ysize)
+        rx = float(state[1][1]*self.xsize)
+        self.robot.set_state(ry,rx)
+        gy =  float(state[0][0]*self.ysize)
+        gx =  float(state[0][1]*self.xsize)
+        self.goal.set_state(gy,gx)
+        show_state = state[2]+self.robot_map+self.goal_map
+        return show_state
+
+    def render(self, state):
+        show_state = self.get_state_plot(state)
         if not self.goal_map.sum() > 0:
             print("no goal")
             embed()
@@ -499,7 +511,7 @@ class RoadEnv():
             self.ax.set_ylim(0,self.ysize)
             self.ax.set_xlim(0,self.xsize)
 
-        self.shown.set_data(self.road_maps[state_index]+self.robot_map+self.goal_map)
+        self.shown.set_data(show_state)
         plt.show()
         plt.pause(.0001)
 

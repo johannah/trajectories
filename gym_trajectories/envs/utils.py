@@ -235,9 +235,9 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     u = torch.FloatTensor(means.size())
     if l.is_cuda : u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
-    u = Variable(u)
     # hack to make deterministic JRH
-    #u = u*0.0 + 0.5
+    u = u*0.0 + 0.5
+    u = Variable(u)
 
     if only_mean:
         x = means

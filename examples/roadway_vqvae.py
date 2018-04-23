@@ -86,16 +86,13 @@ def goal_node_probs_fn(state, state_index, env):
     best_actions = [b[0] for b in best_angles]
     best_angles = np.ones(len(env.action_space))
     best_angles[len(env.action_space)/2:len(env.action_space)/3] = 2
-    best_angles[:len(env.action_space)/2] = 3
-    best_angles[0] = 3.5
+    best_angles[:len(env.action_space)/2] = 2.4
+    best_angles[0] = 2.5
     best_angles = best_angles/float(best_angles.sum())
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
     actions_and_probs = sorted(unsorted_actions_and_probs, key=lambda tup: tup[0])
 
-    print('bearing', bearing)
-    print(actions_and_distances)
-    print(actions_and_probs)
     return actions_and_probs
 
 def equal_node_probs_fn(state, state_index, env):
@@ -106,14 +103,26 @@ def equal_node_probs_fn(state, state_index, env):
 def get_vq_from_road(road_state):
     road_state = Variable(transforms.ToTensor()(road_state[:,:,None].astype(np.float32)))
     x_d, z_e_x, z_q_x, latents = vmodel(road_state[None])
-    vroad_state = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    vroad_state = vroad_state[0,0].data.numpy() #.astype(np.uint8)
-    vroad_state = (vroad_state*255).astype(np.uint8)
-    return vroad_state
+    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    vroad_state = x_tilde[0,0].data.numpy() 
+    uvroad_state = ((0.5*vroad_state+0.5)*255).astype(np.uint8)
+    return uvroad_state
+
+def get_vq_from_roads(road_states):
+    print("precomputing road state estimates")
+    road_states = Variable(transforms.ToTensor()(road_states.transpose(1,2,0).astype(np.float32)))[:,None]
+    x_d, z_e_x, z_q_x, latents = vmodel(road_states)
+    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    vroad_state = x_tilde.data.numpy() 
+    uvroad_states = ((0.5*vroad_state+0.5)*255).astype(np.uint8)[:,0]
+    return uvroad_states
 
 
 class PMCTS(object):
-    def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, n_playouts=1000, rollout_length=300):
+    def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, 
+            n_playouts=1000, rollout_length=300, use_est=False):
+        # use estimator for planning, if false, use env
+        self.use_est = use_est
         self.env = env
         self.rdn = random_state
         self.node_probs_fn = node_probs_fn
@@ -126,6 +135,8 @@ class PMCTS(object):
         self.step = 0
         self.rollout_length = rollout_length
         self.nodes_seen = {}
+        if self.use_est:
+            self.road_map_ests = get_vq_from_roads(self.env.road_maps)
 
     def get_children(self, node):
         print('node name', node.name)
@@ -136,25 +147,21 @@ class PMCTS(object):
     def playout(self, playout_num, state, state_index):
         # set new root of MCTS (we've taken a step in the real game)
         # only sets robot and goal states
-        finished,value = self.env.set_state(state, state_index)
         logging.debug('+++++++++++++START PLAYOUT NUM: {} FOR STATE: {}++++++++++++++'.format(playout_num,state_index))
         init_state = state
         init_state_index = state_index
         node = self.root
-        actions = []
         won = False
- 
         frames = []
-        vstate = get_vq_from_road(state[2])
         # stack true state then vstate
-        frames.append((state[2], vstate))
-        state = [state[0], state[1], vstate]
+        vstate = [state[0], state[1], self.road_map_ests[state_index]]
+        frames.append((self.env.get_state_plot(state), self.env.get_state_plot(vstate)))
+        # always use true state for first
+        finished,value = self.env.set_state(state, state_index)
         while True:
             rs = self.env.get_robot_state(state)
-
             if node.is_leaf():
                 if not finished:
-
                     logging.debug('PLAYOUT INIT STATE {}: expanding leaf at state {} robot: {}'.format(init_state_index, state_index, rs))
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
@@ -163,33 +170,31 @@ class PMCTS(object):
                     # if you have a neural network - use it here to bootstrap the value
                     # otherwise, playout till the end
                     # rollout one randomly
-                    value, rand_actions, end_state, end_state_index, rframes = self.rollout_from_state(state, state_index)
+                    value, rframes = self.rollout_from_state(state, state_index)
                     frames.extend(rframes)
-                    actions += rand_actions
                     finished = True
-                else:
-                    end_state_index = state_index
-                    end_state = state
                 # finished the rollout
                 node.update(value)
-                actions.append(value)
                 if value > 0:
                     node.n_wins+=1
                     won = True
-                    logging.debug('won one with value:{} actions:{}'.format(value, actions))
-                return won, frames
+                return won, frames, value
             else:
                 # greedy select
                 # trys actions based on c_puct
                 action, new_node = node.get_best(self.c_puct)
-                actions.append(action)
                 next_state, value, finished, _ = self.env.step(state, state_index, action)
                 # time step
                 state_index +=1
-                vnext_road_state = get_vq_from_road(next_state[2])
-                state = [next_state[0], next_state[1], vnext_road_state]
-                frames.append((next_state[2], vnext_road_state))
+                # gets true step back 
+                next_vstate = [next_state[0], next_state[1], self.road_map_ests[state_index]]
+                # stack true state then vstate
+                frames.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
                 node = new_node
+                if self.use_est:
+                    state = next_vstate
+                else:
+                    state = next_state
 
     def get_rollout_action(self, state):
         valid_actions = self.env.action_space
@@ -204,32 +209,31 @@ class PMCTS(object):
         logging.debug('-------------------------------------------')
         logging.debug('starting random rollout from state: {}'.format(state_index))
         # comes in already transformed
-        init_state = state
-        init_index = state_index
-        rollout_actions = []
-        rollout_states = []
-        rollout_robot_positions = []
         rframes = []
 
         try:
             finished,value = self.env.set_state(state, state_index)
             if finished:
-                return value, rollout_actions, state, state_index, rframes
+                return value, rframes
             c = 0
             while not finished:
                 if c < self.rollout_length:
-                    rs = self.env.get_robot_state(state)
                     a, action_probs = self.get_rollout_action(state)
-                    rollout_robot_positions.append(rs)
-                    rollout_states.append(state)
-                    rollout_actions.append(a)
-                    self.env.set_state(state)
+                    self.env.set_state(state, state_index)
                     next_state, reward, finished,_ = self.env.step(state, state_index, a)
-                    vnext_road_state = get_vq_from_road(next_state[2])
-                    state = [next_state[0], next_state[1], vnext_road_state]
-                    # true and vq state
-                    rframes.append((next_state[2], vnext_road_state))
+
                     state_index+=1
+                    #next_vstate = [next_state[0], next_state[1], get_vq_from_road(next_state[2])]
+                    next_vstate = [next_state[0], next_state[1], self.road_map_ests[state_index]]
+                    # stack true state then vstate
+                    rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
+
+                    if self.use_est:
+                        state = next_vstate
+                    else:
+                        state = next_state
+
+                    # true and vq state
                     c+=1
                     if finished:
                         logging.debug('finished rollout after {} steps with value {}'.format(c,value))
@@ -244,7 +248,7 @@ class PMCTS(object):
         except Exception, e:
             print(e)
             embed()
-        return value, rollout_actions, state, state_index, rframes
+        return value, rframes
 
 
     def get_action_probs(self, state, state_index, temp=1e-2):
@@ -253,13 +257,13 @@ class PMCTS(object):
         won = 0
 
         finished,value = self.env.set_state(state, state_index)
-        all_frames = []
+        all_frames = {}
         if not finished:
             for n in range(self.n_playouts):
                 from_state = deepcopy(state)
                 from_state_index = deepcopy(state_index)
-                w, fs = self.playout(n, from_state, from_state_index)
-                all_frames.append(fs)
+                w, fs, v = self.playout(n, from_state, from_state_index)
+                all_frames[n] = fs
                 won+=w
         else:
             logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
@@ -336,12 +340,12 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=equal_node_probs_fn,
     #            n_playouts=n_playouts,rollout_length=max_rollout_length)
     pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
-                n_playouts=n_playouts,rollout_length=max_rollout_length)
+                n_playouts=n_playouts,rollout_length=max_rollout_length, use_est=True)
 
     t = 0
     finished = False
     # draw initial state
-    #true_env.render(state,t)
+    true_env.render(state)
     print("SEED", seed)
     frames = []
     while not finished:
@@ -352,7 +356,7 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         # search for best action
         st = time.time()
         action, action_probs, playout_frames = pmcts.get_best_action(deepcopy(state), t)
-        frames.append((state, playout_frames))
+        frames.append((true_env.get_state_plot(state), playout_frames))
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
@@ -362,13 +366,12 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         results['actions'].append(action)
         if not finished:
             pmcts.update_tree_move(action)
-            #pmcts.reset_tree()
             state = next_state
             t+=1
         else:
             results['reward'] = reward
             states.append(next_state)
-        #true_env.render(next_state, t)
+        true_env.render(next_state)
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -381,33 +384,47 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
+    true_env.close_plot()
 
+    plt.clf()
+    plt.close()
     fpath = 'trials/road-vqvae/seed_{}'.format(seed)
     try:
         if not os.path.exists(fpath):
             os.makedirs(fpath)
-        for ts, (actual_frame, playouts) in enumerate(frames):
-            for pn, playout in enumerate(playouts):
-                for pf, playout_frame in enumerate(playout):
-                    fname = 'seed_{}_truestep_{}_playout_{}_pstep_{}_reward_{}.png'.format(seed, ts, pn, pf, reward)
+        for ts in range(len(frames)):
+            print("plotting true frame {}".format(ts))
+            # true frame
+            actual_frame = frames[ts][0]
+            # list of tuples with (real playout state, est playout state)
+            playouts = frames[ts][1]
+            selected_playouts = rdn.choice(playouts.keys(), min(3, len(playouts.keys())), replace=False)
+            for pn in sorted(selected_playouts):
+                fs = playouts[pn]
+                print("plotting step {} playout {}".format(ts, pn))
+                for pf, (true_playout_frame,est_playout_frame) in enumerate(fs):
+                    fname = 'seed_{}_tstep_{}_pnum_{}_pstep_{}_reward_{}.png'.format(seed, ts, pn, pf, reward)
 
                     f,ax=plt.subplots(1,3, figsize=(10,3.5))
-                    ax[0].imshow(actual_frame[2], origin='lower')
-                    ax[0].set_title("true state:step: {}".format(ts))
-                    ax[1].imshow(playout_frame[0], origin='lower')
+                    ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+                    ax[0].set_title("true state step: {}".format(ts))
+                    ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
                     ax[1].set_title("rollout num: {} step: {}".format(pn,pf))
-                    ax[2].imshow(playout_frame[1], origin='lower')
-                    ax[2].set_title("vqvae rollout num: {} step: {}".format(pn,pf))
+                    ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
+                    ax[2].set_title("vqvae num: {} step: {}".format(pn,pf))
                     plt.savefig(os.path.join(fpath,fname))
                     plt.close()
+        gif_path = os.path.join(fpath, 'seed_{}_reward_{}.gif'.format(seed, int(reward)))
+        search = os.path.join(fpath, 'seed_*.png')
+        cmd = 'convert %s %s'%(search, gif_path)
+        os.system(cmd)
+
 
     except Exception, e:
         print(e)
         embed()
 
 
-    time.sleep(1)
-    #true_env.close_plot()
     return results
 
 
@@ -424,11 +441,12 @@ if __name__ == "__main__":
     parser.add_argument('-y', '--ysize', type=int, default=40, help='pixel size of game in y direction')
     parser.add_argument('-x', '--xsize', type=int, default=40, help='pixel size of game in x direction')
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
-    parser.add_argument('-l', '--level', type=int, default=4, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
+    parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
     parser.add_argument('-p', '--num_playouts', type=int, default=200, help='number of playouts for each step')
     parser.add_argument('-r', '--rollout_steps', type=int, default=100, help='limit number of steps taken be random rollout')
     parser.add_argument('-m', '--model_loadpath', type=str, default=default_model_savepath)
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
+    parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
 
     args = parser.parse_args()
     use_cuda = args.cuda
@@ -456,7 +474,10 @@ if __name__ == "__main__":
         sys.exit()
 
     goal_dis = args.max_goal_distance
-    logging.basicConfig(level=logging.DEBUG)
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     all_results = []
     for i in range(args.num_episodes):
@@ -467,65 +488,5 @@ if __name__ == "__main__":
         all_results.append(r)
     print("FINISHED")
     embed()
-
-
-
-#    test_data = data_train_loader
-#    if use_cuda:
-#        x_test = Variable(test_data).cuda()
-#    else:
-#        x_test = Variable(test_data)
-
-
-#def test(x,model,nr_logistic_mix,do_use_cuda=False,save_img_path=None):
-#    x_d, z_e_x, z_q_x, latents = model(x)
-#    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-#    loss_1 = discretized_mix_logistic_loss(x_d,2*x-1,use_cuda=do_use_cuda)
-#    loss_2 = F.mse_loss(z_q_x, z_e_x.detach())
-#    loss_3 = .25*F.mse_loss(z_e_x, z_q_x.detach())
-#    test_loss = to_scalar([loss_1, loss_2, loss_3])
-#
-#    if save_img_path is not None:
-#        idx = np.random.randint(0, len(test_data))
-#        x_cat = torch.cat([x[idx], x_tilde[idx]], 0)
-#        images = x_cat.cpu().data
-#        oo = 0.5*np.array(x_tilde.cpu().data)[0,0]+0.5
-#        ii = np.array(x.cpu().data)[0,0]
-#        imwrite(save_img_path, oo)
-#        imwrite(save_img_path.replace('.png', 'orig.png'), ii)
-#    return test_loss
-
-
-#
-#    def get_mcts_action(self, state, ucb_weight=0.5):
-#        init_y, init_x = self.env.robot.y, self.env.robot.x
-#
-#        actions = [(action_angle,action_speed) for action_angle in self.env.action_space[0] for action_speed in self.env.action_space[1]]
-#        move_states = []
-#        sdata = transforms.ToTensor()(state[:,:,None].astype(np.float32))
-#        tstate = Variable(sdata)
-#        x_tilde, z_e_x, z_q_x, latents = self.mcts_model['rep_model'](tstate[None])
-#        # x_tilde would need to be sampled if we are going to use it because it
-#        # is a mixture distribution in the 1th channel
-#        # z_e_x is the output of the encoder
-#        # z_q_x is the input into the decoder
-#        # latents is the code book
-#        # latents = latents.data.numpy()[0]
-#        state_input = z_q_x.contiguous().view(z_q_x.shape[0],-1)
-#
-#        action_probs, state_value = self.mcts_model['zero_model'](state_input)
-#
-#
-#        #for action in actions:
-#        #    # reset robot back to starting position
-#        #    # first step
-#        #    self.env.robot.y = init_y
-#        #    self.env.robot.x = init_x
-#        #    self.env.steps = 0
-#        #    action = [action_angle, action_speed]
-#        #    next_state, reward, finished, _ = self.env.step(action)
-#        #    move_states.append(next_state)
-
-
 
 
