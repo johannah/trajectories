@@ -3,8 +3,9 @@ import torch
 from IPython import embed
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+from torch import nn
 from torchvision import datasets, transforms
-from vq_vae import AutoEncoder, to_scalar
+from vae import Encoder, Decoder, VAE, latent_loss
 from torch.autograd import Variable
 import numpy as np
 from torchvision.utils import save_image
@@ -13,14 +14,12 @@ from glob import glob
 import os
 from imageio import imread, imwrite
 from PIL import Image
-from utils import discretized_mix_logistic_loss
-from utils import sample_from_discretized_mix_logistic
 
-class FroggerDataset(Dataset):
+class VqvaeDataset(Dataset):
     def __init__(self, root_dir, transform=None, limit=None):
         self.root_dir = root_dir
         self.transform = transform
-        search_path = os.path.join(self.root_dir, '*.png')
+        search_path = os.path.join(self.root_dir, '*.npy')
         self.indexes = glob(search_path)
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
@@ -32,20 +31,10 @@ class FroggerDataset(Dataset):
         return len(self.indexes)
 
     def __getitem__(self, idx):
-        img_name = self.indexes[idx]
-        image = imread(img_name)
-        #goal_val = 254
-        #goal_pixel = np.where(image==goal_val)
-        #image[goal_pixel[0]+1,goal_pixel[1]] = goal_val
-        #image[goal_pixel[0]-1,goal_pixel[1]] = goal_val
-        #image[goal_pixel[0],goal_pixel[1]+1] = goal_val
-        #image[goal_pixel[0],goal_pixel[1]-1] = goal_val
-        image = image[:,:,None].astype(np.float32)
-        reward = int(img_name.split('_')[-1].split('.png')[0])
-        if self.transform is not None:
-            image = self.transform(image)
-
-        return image,reward
+        data_name = self.indexes[idx]
+        data = np.load(data_name).ravel().astype(np.float32)
+        data = 2*((data/512.0)-0.5)
+        return data,data_name
 
 
 def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
@@ -56,25 +45,15 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
             x = Variable(data, requires_grad=False).cuda()
         else:
             x = Variable(data, requires_grad=False)
-
         optimizer.zero_grad()
-
-        x_tilde, z_e_x, z_q_x, latents = model(x)
-        z_q_x.retain_grad()
-
-        #loss_1 = F.binary_cross_entropy(x_tilde, x)
-        loss_1 = discretized_mix_logistic_loss(x_tilde,2*x-1,use_cuda=do_use_cuda)
-        loss_1.backward(retain_graph=True)
-        model.embedding.zero_grad()
-        z_e_x.backward(z_q_x.grad, retain_graph=True)
-
-        loss_2 = F.mse_loss(z_q_x, z_e_x.detach())
-        loss_2.backward(retain_graph=True)
-        loss_3 = .25*F.mse_loss(z_e_x, z_q_x.detach())
-        loss_3.backward()
+        dec = vae(x)
+        ll = latent_loss(vae.z_mean, vae.z_sigma)
+        loss = criterion(dec, x)+ll
+        loss.backward()
         optimizer.step()
-        train_loss.append(to_scalar([loss_1, loss_2, loss_3]))
-        if not batch_idx%10:
+        train_loss.append(loss.cpu().data[0])
+
+        if not batch_idx%100:
             print 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {} Time: {}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / float(len(train_loader)),
@@ -83,29 +62,29 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
             )
 
     state = {'epoch':epoch,
-             'state_dict':model.state_dict(),
+             'state_dict':vae.state_dict(),
              'loss':np.asarray(train_loss).mean(0),
              'optimizer':optimizer.state_dict(),
              }
     return model, optimizer, state
 
-def test(x,model,nr_logistic_mix,do_use_cuda=False,save_img_path=None):
-    x_d, z_e_x, z_q_x, latents = model(x)
-    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    loss_1 = discretized_mix_logistic_loss(x_d,2*x-1,use_cuda=do_use_cuda)
-    loss_2 = F.mse_loss(z_q_x, z_e_x.detach())
-    loss_3 = .25*F.mse_loss(z_e_x, z_q_x.detach())
-    test_loss = to_scalar([loss_1, loss_2, loss_3])
-
-    if save_img_path is not None:
-        idx = np.random.randint(0, len(test_data))
-        x_cat = torch.cat([x[idx], x_tilde[idx]], 0)
-        images = x_cat.cpu().data
-        oo = 0.5*np.array(x_tilde.cpu().data)[0,0]+0.5
-        ii = np.array(x.cpu().data)[0,0]
-        imwrite(save_img_path, oo)
-        imwrite(save_img_path.replace('.png', 'orig.png'), ii)
+def test(x,vae,vqvae_model,do_use_cuda=False,save_img_path=None):
+    dec = vae(x)
+    ll = latent_loss(vae.z_mean, vae.z_sigma)
+    loss = criterion(dec, x)+ll
+    test_loss = loss.cpu().data.mean()
     return test_loss
+
+
+    #if save_img_path is not None:
+    #    idx = np.random.randint(0, len(test_data))
+    #    x_cat = torch.cat([x[idx], x_tilde[idx]], 0)
+    #    images = x_cat.cpu().data
+    #    oo = 0.5*np.array(x_tilde.cpu().data)[0,0]+0.5
+    #    ii = np.array(x.cpu().data)[0,0]
+    #    imwrite(save_img_path, oo)
+    #    imwrite(save_img_path.replace('.png', 'orig.png'), ii)
+    #return test_loss
 
 def save_checkpoint(state, is_best=False, filename='model.pkl'):
     torch.save(state, filename)
@@ -116,15 +95,15 @@ def save_checkpoint(state, is_best=False, filename='model.pkl'):
 if __name__ == '__main__':
     import argparse
     default_base_datadir = '../saved/'
-    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
+    default_model_savepath = os.path.join(default_base_datadir, 'vae_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
     parser.add_argument('-l', '--model_loadpath', default=None)
-    parser.add_argument('-z', '--num_z', default=16, type=int)
-    parser.add_argument('-e', '--num_episodes', default=150, type=int)
+    parser.add_argument('-z', '--num_z', default=64, type=int)
+    parser.add_argument('-e', '--num_epochs', default=150, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
 
     args = parser.parse_args()
@@ -132,31 +111,39 @@ if __name__ == '__main__':
     test_data_dir =  os.path.join(args.datadir, 'imgs_test')
     use_cuda = args.cuda
 
-    nr_logistic_mix = 10
+    data_dim = 100
+
+    encoder = Encoder(data_dim,  args.num_z)
+    decoder = Decoder(args.num_z, data_dim)
+    vae = VAE(encoder, decoder)
+    criterion = nn.MSELoss()
+    # square error is not correct loss - for ordered input,
+    # should use softmax for unordered input ( like mine )
+
     if use_cuda:
         print("using gpu")
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z).cuda()
-    else:
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z)
-    opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
+        vae = vae.cuda()
+        vae.encoder = vae.encoder.cuda()
+        vae.decoder = vae.decoder.cuda()
+    opt = torch.optim.Adam(vae.parameters(), lr=1e-4)
     epoch = 0
+    data_train_loader = DataLoader(VqvaeDataset(train_data_dir,
+                                   limit=args.num_train_limit),
+                                   batch_size=64, shuffle=True)
+    data_test_loader = DataLoader(VqvaeDataset(test_data_dir),
+                                  batch_size=32, shuffle=True)
+    test_data = data_train_loader
+
     if args.model_loadpath is not None:
         if os.path.exists(args.model_loadpath):
             model_dict = torch.load(args.model_loadpath)
-            vmodel.load_state_dict(model_dict['state_dict'])
+            vae.load_state_dict(model_dict['state_dict'])
             opt.load_state_dict(model_dict['optimizer'])
             epoch =  model_dict['epoch']
             print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.model_loadpath))
 
-    data_train_loader = DataLoader(FroggerDataset(train_data_dir,
-                                   transform=transforms.ToTensor(), limit=args.num_train_limit),
-                                   batch_size=64, shuffle=True)
-    data_test_loader = DataLoader(FroggerDataset(test_data_dir,
-                                  transform=transforms.ToTensor()),
-                                  batch_size=32, shuffle=True)
-    test_data = data_train_loader
     for batch_idx, (test_data, _) in enumerate(data_test_loader):
         if use_cuda:
             x_test = Variable(test_data).cuda()
@@ -164,12 +151,12 @@ if __name__ == '__main__':
             x_test = Variable(test_data)
 
     test_img = args.model_savepath.replace('.pkl', '_test.png')
-    for i in xrange(epoch,epoch+args.num_episodes):
-        vmodel, opt, state = train(i,vmodel,opt,data_train_loader,
+    for e in xrange(epoch,epoch+args.num_epochs):
+        vae, opt, state = train(e,vae,opt,data_train_loader,
                             do_checkpoint=True,do_use_cuda=use_cuda)
-        test_loss = test(x_test,vmodel,nr_logistic_mix,do_use_cuda=use_cuda,save_img_path=test_img)
-        print('test_loss {}'.format(test_loss))
-        state['test_loss'] = test_loss
+        #test_loss = test(x_test,vae,do_use_cuda=use_cuda,save_img_path=test_img)
+        #print('test_loss {}'.format(test_loss))
+        #state['test_loss'] = test_loss
         save_checkpoint(state, filename=args.model_savepath)
 
 
