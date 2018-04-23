@@ -46,6 +46,13 @@ def generate_results(data_loader):
         dec = vae(x)
         decr = dec.contiguous().view(dec.shape[0],32, 10,10)
         udec = (decr*z_q_x_std)+z_q_x_mean
+        # TODO - knearest neighbors
+        # going to use vae.z_mean, and vae.z_std
+        # look at slides from laurent and vincent - cifar summer school
+        # to prune unused dimensions
+        # now we have mu and sigma that we will run knn lookup within our
+        # training set. then once we've mapped to the original frame that made
+        # the mu/sigma - we know frame and mu and sigma
         x_d = qmodel.decoder(udec)
         x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
         nx_tilde = x_tilde.cpu().data.numpy()
@@ -131,5 +138,4 @@ if __name__ == '__main__':
 
     #generate_results(z_data_test_loader)
     generate_results(z_data_train_loader)
-    embed()
 

@@ -86,7 +86,6 @@ if __name__ == '__main__':
     test_data_dir =  os.path.join(args.datadir, 'imgs_test')
     use_cuda = args.cuda
 
-
     data_dim = 10*10*32
     encoder = Encoder(data_dim,  args.num_z)
     decoder = Decoder(args.num_z, data_dim)
