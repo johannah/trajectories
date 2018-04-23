@@ -29,34 +29,38 @@ class Encoder(torch.nn.Module):
         super(Encoder, self).__init__()
         # make encoder one layer bigger then decoder - kk
         self.dout = D_out
-        self.linear1 = torch.nn.Linear(D_in, 84)
-        self.linear2 = torch.nn.Linear(84, 84)
-        self.linear3 = torch.nn.Linear(84, self.dout)
+        self.linear1 = torch.nn.Linear(D_in, 1024)
+        self.linear2 = torch.nn.Linear(1024, 512)
+        self.linear3 = torch.nn.Linear(512, 256)
+        self.linear4 = torch.nn.Linear(256, self.dout)
 
     def forward(self, x):
         x = F.relu(self.linear1(x))
         x = F.relu(self.linear2(x))
-        return F.relu(self.linear3(x))
+        x = F.relu(self.linear3(x))
+        return F.relu(self.linear4(x))
 
 
 class Decoder(torch.nn.Module):
     def __init__(self, D_in, D_out):
         super(Decoder, self).__init__()
         self.latent_dim = D_in
-        self.linear1 = torch.nn.Linear(self.latent_dim, 84)
-        self.linear2 = torch.nn.Linear(84, D_out)
+        self.linear1 = torch.nn.Linear(self.latent_dim, 512)
+        self.linear2 = torch.nn.Linear(512, 1024)
+        self.linear3 = torch.nn.Linear(1024, D_out)
 
     def forward(self, x):
         x = F.relu(self.linear1(x))
-        return F.relu(self.linear2(x))
-
+        x = F.relu(self.linear2(x))
+        return F.relu(self.linear3(x))
 
 class VAE(torch.nn.Module):
 
-    def __init__(self, encoder, decoder):
+    def __init__(self, encoder, decoder, use_cuda=False):
         super(VAE, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
+        self.use_cuda = use_cuda
 
         self._enc_mu = torch.nn.Linear(self.encoder.dout, self.decoder.latent_dim)
         self._enc_log_sigma = torch.nn.Linear(self.encoder.dout, self.decoder.latent_dim)
@@ -72,8 +76,12 @@ class VAE(torch.nn.Module):
 
         self.z_mean = mu
         self.z_sigma = sigma
+        if self.use_cuda:
+            v = Variable(std_z, requires_grad=False).cuda()
+        else:
+            v = Variable(std_z, requires_grad=False)
 
-        return mu + sigma * Variable(std_z, requires_grad=False)  # Reparameterization trick
+        return mu + sigma * v  # Reparameterization trick
 
     def forward(self, state):
         h_enc = self.encoder(state)

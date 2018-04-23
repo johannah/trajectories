@@ -3,6 +3,7 @@ import torch
 from IPython import embed
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+from datasets import VqvaeDataset, z_q_x_mean, z_q_x_std
 from torch import nn
 from torchvision import datasets, transforms
 from vae import Encoder, Decoder, VAE, latent_loss
@@ -15,30 +16,10 @@ import os
 from imageio import imread, imwrite
 from PIL import Image
 
-class VqvaeDataset(Dataset):
-    def __init__(self, root_dir, transform=None, limit=None):
-        self.root_dir = root_dir
-        self.transform = transform
-        search_path = os.path.join(self.root_dir, '*.npy')
-        self.indexes = glob(search_path)
-        if not len(self.indexes):
-            print("Error no files found at {}".format(search_path))
-            raise
-        if limit is not None:
-            self.indexes = self.indexes[:min(len(self.indexes), limit)]
-
-    def __len__(self):
-        return len(self.indexes)
-
-    def __getitem__(self, idx):
-        data_name = self.indexes[idx]
-        data = np.load(data_name).ravel().astype(np.float32)
-        data = 2*((data/512.0)-0.5)
-        return data,data_name
-
-
 def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
-    train_loss = []
+    latent_losses = []
+    mse_losses = []
+    kl_weight = min(1.0,epoch*1e-2)
     for batch_idx, (data, _) in enumerate(train_loader):
         start_time = time.time()
         if do_use_cuda:
@@ -47,44 +28,38 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
             x = Variable(data, requires_grad=False)
         optimizer.zero_grad()
         dec = vae(x)
-        ll = latent_loss(vae.z_mean, vae.z_sigma)
-        loss = criterion(dec, x)+ll
+        kl = kl_weight*latent_loss(vae.z_mean, vae.z_sigma)
+        mse_loss = criterion(dec, x)
+        loss = mse_loss+kl
         loss.backward()
         optimizer.step()
-        train_loss.append(loss.cpu().data[0])
+        latent_losses.append(kl.cpu().data)
+        mse_losses.append(mse_loss.cpu().data)
 
-        if not batch_idx%100:
-            print 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {} Time: {}'.format(
+        if not batch_idx%500:
+            print 'Train Epoch: {} [{}/{} ({:.0f}%)]\tKL Loss: {} MSE Loss: {} Time: {}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / float(len(train_loader)),
-                np.asarray(train_loss).mean(0),
+                np.asarray(latent_losses).mean(0),
+                np.asarray(mse_losses).mean(0),
                 time.time() - start_time
             )
 
     state = {'epoch':epoch,
              'state_dict':vae.state_dict(),
-             'loss':np.asarray(train_loss).mean(0),
+             'mse_losses':np.asarray(mse_losses).mean(0),
+             'latent_losses':np.asarray(latent_losses).mean(0),
              'optimizer':optimizer.state_dict(),
              }
     return model, optimizer, state
 
 def test(x,vae,vqvae_model,do_use_cuda=False,save_img_path=None):
     dec = vae(x)
-    ll = latent_loss(vae.z_mean, vae.z_sigma)
-    loss = criterion(dec, x)+ll
+    kl = latent_loss(vae.z_mean, vae.z_sigma)
+    loss = criterion(dec, x)+kl
     test_loss = loss.cpu().data.mean()
     return test_loss
 
-
-    #if save_img_path is not None:
-    #    idx = np.random.randint(0, len(test_data))
-    #    x_cat = torch.cat([x[idx], x_tilde[idx]], 0)
-    #    images = x_cat.cpu().data
-    #    oo = 0.5*np.array(x_tilde.cpu().data)[0,0]+0.5
-    #    ii = np.array(x.cpu().data)[0,0]
-    #    imwrite(save_img_path, oo)
-    #    imwrite(save_img_path.replace('.png', 'orig.png'), ii)
-    #return test_loss
 
 def save_checkpoint(state, is_best=False, filename='model.pkl'):
     torch.save(state, filename)
@@ -111,13 +86,13 @@ if __name__ == '__main__':
     test_data_dir =  os.path.join(args.datadir, 'imgs_test')
     use_cuda = args.cuda
 
-    data_dim = 100
 
+    data_dim = 10*10*32
     encoder = Encoder(data_dim,  args.num_z)
     decoder = Decoder(args.num_z, data_dim)
-    vae = VAE(encoder, decoder)
+    vae = VAE(encoder, decoder, use_cuda)
     criterion = nn.MSELoss()
-    # square error is not correct loss - for ordered input,
+    # square error is not the correct loss - for ordered input,
     # should use softmax for unordered input ( like mine )
 
     if use_cuda:
@@ -132,7 +107,7 @@ if __name__ == '__main__':
                                    batch_size=64, shuffle=True)
     data_test_loader = DataLoader(VqvaeDataset(test_data_dir),
                                   batch_size=32, shuffle=True)
-    test_data = data_train_loader
+    test_data = data_test_loader
 
     if args.model_loadpath is not None:
         if os.path.exists(args.model_loadpath):
@@ -143,6 +118,7 @@ if __name__ == '__main__':
             print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.model_loadpath))
+            embed()
 
     for batch_idx, (test_data, _) in enumerate(data_test_loader):
         if use_cuda:
@@ -150,7 +126,6 @@ if __name__ == '__main__':
         else:
             x_test = Variable(test_data)
 
-    test_img = args.model_savepath.replace('.pkl', '_test.png')
     for e in xrange(epoch,epoch+args.num_epochs):
         vae, opt, state = train(e,vae,opt,data_train_loader,
                             do_checkpoint=True,do_use_cuda=use_cuda)

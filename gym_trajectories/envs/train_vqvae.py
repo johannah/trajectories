@@ -15,33 +15,7 @@ from imageio import imread, imwrite
 from PIL import Image
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
-
-class FroggerDataset(Dataset):
-    def __init__(self, root_dir, transform=None, limit=None):
-        self.root_dir = root_dir
-        self.transform = transform
-        search_path = os.path.join(self.root_dir, 'seed_*.png')
-        ss = glob(search_path)
-        self.indexes = [s for s in ss if 'gen' not in s]
-
-        if not len(self.indexes):
-            print("Error no files found at {}".format(search_path))
-            raise
-        if limit is not None:
-            self.indexes = self.indexes[:min(len(self.indexes), limit)]
-
-    def __len__(self):
-        return len(self.indexes)
-
-    def __getitem__(self, idx):
-        img_name = self.indexes[idx]
-        image = imread(img_name)
-        image = image[:,:,None].astype(np.float32)
-        if self.transform is not None:
-            image = self.transform(image)
-
-        return image,img_name
-
+from datasets import FroggerDataset
 
 def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
     train_loss = []
@@ -108,7 +82,7 @@ def save_checkpoint(state, is_best=False, filename='model.pkl'):
         bestpath = os.path.join(os.path.split(filename)[0], 'model_best.pkl')
         shutil.copyfile(filename, bestpath)
 
-def generate_results(model,data_loader,nr_logistic_mix,do_use_cuda):
+def generate_dataset(model,data_loader,nr_logistic_mix,do_use_cuda):
     start_time = time.time()
     for batch_idx, (data, img_names) in enumerate(data_loader):
         if do_use_cuda:
@@ -120,22 +94,23 @@ def generate_results(model,data_loader,nr_logistic_mix,do_use_cuda):
         # z_e_x is output of encoder
         # z_q_x is input into decoder
         # latents is code book
-        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        nx_tilde = x_tilde.cpu().data.numpy()
-        nx_tilde = (0.5*nx_tilde+0.5)*255
-        nx_tilde = nx_tilde.astype(np.uint8)
-        vae_input = z_e_x.contiguous().view(z_e_x.shape[0],-1)
-        vae_target = z_q_x.contiguous().view(z_q_x.shape[0],-1)
-        vqvae_rec_images = x_tilde.cpu().data.numpy()
+        #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+        #nx_tilde = x_tilde.cpu().data.numpy()
+        #nx_tilde = (0.5*nx_tilde+0.5)*255
+        #nx_tilde = nx_tilde.astype(np.uint8)
+        #vae_input = z_e_x.contiguous().view(z_e_x.shape[0],-1)
+        #vqvae_rec_images = x_tilde.cpu().data.numpy()
+        nz_q_x = z_q_x.contiguous().view(z_q_x.shape[0],-1).cpu().data.numpy()
         nlatents = latents.cpu().data.numpy()
         for ind, img_name in enumerate(img_names):
-            gen_img_name = img_name.replace('.png', 'vqvae_gen.png')
-            latents_name = img_name.replace('.png', 'vqvae_latents.npy')
-            imwrite(gen_img_name, nx_tilde[ind][0])
-            np.save(latents_name, nlatents[ind])
+            #gen_img_name = img_name.replace('.png', 'vqvae_gen.png')
+            #imwrite(gen_img_name, nx_tilde[ind][0])
+            #latents_name = img_name.replace('.png', 'vqvae_latents.npy')
+            z_q_x_name = img_name.replace('.png', 'vqvae_z_q_x.npy')
+            np.save(z_q_x_name, nz_q_x[ind])
         if not batch_idx%10:
-            print 'Generate Epoch: {} Time: {}'.format(
-                epoch, time.time() - start_time
+            print 'Generate batch_idx: {} Time: {}'.format(
+                batch_idx, time.time() - start_time
             )
 
 if __name__ == '__main__':
@@ -182,7 +157,7 @@ if __name__ == '__main__':
     data_test_loader = DataLoader(FroggerDataset(test_data_dir,
                                   transform=transforms.ToTensor()),
                                   batch_size=32, shuffle=True)
-    test_data = data_train_loader
+    test_data = data_test_loader
     for batch_idx, (test_data, _) in enumerate(data_test_loader):
         if use_cuda:
             x_test = Variable(test_data).cuda()
