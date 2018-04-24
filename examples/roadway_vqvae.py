@@ -158,11 +158,12 @@ class PMCTS(object):
         frames.append((self.env.get_state_plot(state), self.env.get_state_plot(vstate)))
         # always use true state for first
         finished,value = self.env.set_state(state, state_index)
+        ry,rx = self.env.get_robot_state(state)
         while True:
-            rs = self.env.get_robot_state(state)
+            ry,rx = self.env.get_robot_state(state)
+            self.playout_states[state_index,ry,rx] = self.env.robot.color
             if node.is_leaf():
                 if not finished:
-                    logging.debug('PLAYOUT INIT STATE {}: expanding leaf at state {} robot: {}'.format(init_state_index, state_index, rs))
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
                     actions_and_probs = self.node_probs_fn(state, state_index, self.env)
@@ -220,6 +221,8 @@ class PMCTS(object):
                 if c < self.rollout_length:
                     a, action_probs = self.get_rollout_action(state)
                     self.env.set_state(state, state_index)
+                    ry,rx = self.env.get_robot_state(state)
+                    self.playout_states[state_index,ry,rx] = self.env.robot.color
                     next_state, reward, finished,_ = self.env.step(state, state_index, a)
 
                     state_index+=1
@@ -258,12 +261,24 @@ class PMCTS(object):
 
         finished,value = self.env.set_state(state, state_index)
         all_frames = {}
+        self.playout_states = np.zeros((self.env.max_steps, self.env.ysize, self.env.xsize))
         if not finished:
             for n in range(self.n_playouts):
                 from_state = deepcopy(state)
                 from_state_index = deepcopy(state_index)
                 w, fs, v = self.playout(n, from_state, from_state_index)
-                all_frames[n] = fs
+                if len(all_frames.keys())>2:
+                    vs = [k[1] for k in all_frames.keys()]
+                    if v > min(vs):
+                        varg = np.argmin(vs)
+                        bad = all_frames.keys()[varg]
+                        del all_frames[bad] 
+                        all_frames[(n,v)] = fs
+                        #print('adding', (n, v))
+                        #print('deleting', bad)
+                        #print(all_frames.keys())
+                else:
+                    all_frames[(n,v)] = fs
                 won+=w
         else:
             logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
@@ -303,7 +318,7 @@ class PMCTS(object):
         acts, probs, playout_frames = self.get_action_probs(state, state_index, temp=1e-3)
         act = self.rdn.choice(acts, p=probs)
         logging.info("mcts chose action {} in state: {}".format(act,state_index))
-        return act, probs, playout_frames
+        return act, probs, playout_frames, self.playout_states
 
     def update_tree_move(self, action):
         # keep previous info
@@ -345,9 +360,10 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     t = 0
     finished = False
     # draw initial state
-    true_env.render(state)
+    #true_env.render(state)
     print("SEED", seed)
     frames = []
+    sframes = []
     while not finished:
         states.append(state)
         ry,rx = true_env.get_robot_state(state)
@@ -355,8 +371,9 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
         # search for best action
         st = time.time()
-        action, action_probs, playout_frames = pmcts.get_best_action(deepcopy(state), t)
+        action, action_probs, playout_frames, playout_states = pmcts.get_best_action(deepcopy(state), t)
         frames.append((true_env.get_state_plot(state), playout_frames))
+        sframes.append((true_env.get_state_plot(state), playout_states))
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
@@ -371,7 +388,7 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         else:
             results['reward'] = reward
             states.append(next_state)
-        true_env.render(next_state)
+        #true_env.render(next_state)
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -384,34 +401,35 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
-    true_env.close_plot()
+    #true_env.close_plot()
 
     plt.clf()
     plt.close()
-    fpath = 'trials/road-vqvae/seed_{}'.format(seed)
+    fpath = 'trials/road-vqvae/Aseed_{}'.format(seed)
+
     try:
         if not os.path.exists(fpath):
             os.makedirs(fpath)
-        for ts in range(len(frames)):
-            print("plotting true frame {}".format(ts))
+        for ts in range(len(sframes)):
+            print("plotting true frame {}/{}".format(ts,t))
             # true frame
-            actual_frame = frames[ts][0]
+            actual_frame = sframes[ts][0]
             # list of tuples with (real playout state, est playout state)
-            playouts = frames[ts][1]
-            selected_playouts = rdn.choice(playouts.keys(), min(3, len(playouts.keys())), replace=False)
-            for pn in sorted(selected_playouts):
-                fs = playouts[pn]
-                print("plotting step {} playout {}".format(ts, pn))
-                for pf, (true_playout_frame,est_playout_frame) in enumerate(fs):
-                    fname = 'seed_{}_tstep_{}_pnum_{}_pstep_{}_reward_{}.png'.format(seed, ts, pn, pf, reward)
+            playouts = sframes[ts][1]
+            for pn, pframe in enumerate(playouts):
+                if pframe.sum():
+                    print("plotting step {}/{} playout step {}".format(ts,t,pn))
+                    true_playout_frame = true_env.road_maps[pn]+pframe+true_env.goal_map
+                    est_playout_frame = pmcts.road_map_ests[pn]+pframe+true_env.goal_map
 
+                    fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
                     f,ax=plt.subplots(1,3, figsize=(10,3.5))
                     ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
                     ax[0].set_title("true state step: {}".format(ts))
                     ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[1].set_title("rollout num: {} step: {}".format(pn,pf))
+                    ax[1].set_title("rollout step:{}".format(pn))
                     ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[2].set_title("vqvae num: {} step: {}".format(pn,pf))
+                    ax[2].set_title("model step:{}".format(pn))
                     plt.savefig(os.path.join(fpath,fname))
                     plt.close()
         gif_path = os.path.join(fpath, 'seed_{}_reward_{}.gif'.format(seed, int(reward)))
@@ -419,11 +437,60 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         cmd = 'convert %s %s'%(search, gif_path)
         os.system(cmd)
 
-
     except Exception, e:
         print(e)
         embed()
 
+#    try:
+#        if not os.path.exists(fpath):
+#            os.makedirs(fpath)
+#        for ts in range(len(frames)):
+#            print("plotting true frame {}/{}".format(ts,t))
+#            # true frame
+#            actual_frame = frames[ts][0]
+#            # list of tuples with (real playout state, est playout state)
+#            playouts = frames[ts][1]
+#            keys = playouts.keys()
+#            inds = range(len(keys))
+#            selected_playouts = rdn.choice(inds, min(1, len(inds)), replace=False)
+#            for pn in sorted(selected_playouts):
+#                key = keys[pn]
+#                score = key[1]
+#                fs = playouts[key]
+#                num = key[0]
+#                print("plotting step {}/{} playout {}".format(ts,t,key))
+#                for pf, (true_playout_frame,est_playout_frame) in enumerate(fs):
+#                    if not pf:
+#                        fname = 'seed_%06d_tstep_%04d_pnum_%04d_pstep_%04d.png'%(seed, ts, num, pf)
+#                        f,ax=plt.subplots(1,3, figsize=(10,3.5))
+#                        ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+#                        ax[0].set_title("true state step: {}".format(ts))
+#                        ax[1].imshow(true_playout_frame*0, origin='lower', vmin=0, vmax=255 )
+#                        ax[1].set_title("rollout real num:{} step:{}".format(num,pf))
+#                        ax[2].imshow(est_playout_frame*0, origin='lower', vmin=0, vmax=255 )
+#                        ax[2].set_title("rollout model reward:{}".format(pf,round(score,2)))
+#                        plt.savefig(os.path.join(fpath,fname))
+#                        plt.close()
+# 
+#                    pf += 1
+#                    fname = 'seed_%06d_tstep_%04d_pnum_%04d_pstep_%04d.png'%(seed, ts, num, pf)
+#                    f,ax=plt.subplots(1,3, figsize=(10,3.5))
+#                    ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+#                    ax[0].set_title("true state step: {}".format(ts))
+#                    ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
+#                    ax[1].set_title("sample rollout step:{}".format(pf))
+#                    ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
+#                    ax[2].set_title("sample model reward:{}".format(round(score,2)))
+#                    plt.savefig(os.path.join(fpath,fname))
+#                    plt.close()
+#        gif_path = os.path.join(fpath, 'seed_{}_reward_{}.gif'.format(seed, int(reward)))
+#        search = os.path.join(fpath, 'seed_*.png')
+#        cmd = 'convert %s %s'%(search, gif_path)
+#        os.system(cmd)
+#
+#    except Exception, e:
+#        print(e)
+#        embed()
 
     return results
 
