@@ -405,42 +405,78 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
     plt.clf()
     plt.close()
-    fpath = 'trials/road-vqvae/Aseed_{}'.format(seed)
-
+    fpath = 'trials/road-vqvae/Tseed_{}'.format(seed)
+# PLOT TRUE SCATTERS
     try:
+
         if not os.path.exists(fpath):
             os.makedirs(fpath)
         for ts in range(len(sframes)):
             print("plotting true frame {}/{}".format(ts,t))
             # true frame
             actual_frame = sframes[ts][0]
-            # list of tuples with (real playout state, est playout state)
-            playouts = sframes[ts][1]
-            for pn, pframe in enumerate(playouts):
-                if pframe.sum():
-                    print("plotting step {}/{} playout step {}".format(ts,t,pn))
-                    true_playout_frame = true_env.road_maps[pn]+pframe+true_env.goal_map
-                    est_playout_frame = pmcts.road_map_ests[pn]+pframe+true_env.goal_map
-
-                    fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
-                    f,ax=plt.subplots(1,3, figsize=(10,3.5))
-                    ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[0].set_title("true state step: {}".format(ts))
-                    ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[1].set_title("rollout step:{}".format(pn))
-                    ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[2].set_title("model step:{}".format(pn))
-                    plt.savefig(os.path.join(fpath,fname))
-                    plt.close()
+            fname = 'seed_%06d_tstep_%04d.png'%(seed, ts)
+            f,ax=plt.subplots(1,1, figsize=(3,3.5))
+            ax.imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+            ax.set_title("true step:{}/{} reward:{}".format(ts,t,round(reward,2)))
+            plt.savefig(os.path.join(fpath,fname))
+            plt.close()
+        print("making gif")
         gif_path = os.path.join(fpath, 'seed_{}_reward_{}.gif'.format(seed, int(reward)))
         search = os.path.join(fpath, 'seed_*.png')
-        cmd = 'convert %s %s'%(search, gif_path)
+        cmd = 'convert -delay 1/60 %s %s'%(search, gif_path)
         os.system(cmd)
 
     except Exception, e:
         print(e)
         embed()
+# PLOT AGENT SCATTERS
+#
+#    try:
+#
+#        if not os.path.exists(fpath):
+#            os.makedirs(fpath)
+#        for ts in range(len(sframes)):
+#            print("plotting true frame {}/{}".format(ts,t))
+#            # true frame
+#            actual_frame = sframes[ts][0]
+#            # list of tuples with (real playout state, est playout state)
+#            playouts = sframes[ts][1]
+#            c = 0
+#            gap = 6
+#            for pn, pframe in enumerate(playouts):
+#                    if not c%gap:
+#                        if c > 10:
+#                            if pframe.sum()<(4*true_env.robot.color-1):
+#                                continue
+#
+#                        print(pframe.sum())
+#                        print("plotting step {}/{} playout step {}".format(ts,t,pn))
+#                        true_playout_frame = true_env.road_maps[pn]+pframe+true_env.goal_map
+#                        est_playout_frame = pmcts.road_map_ests[pn]+pframe+true_env.goal_map
+#
+#                        fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
+#                        f,ax=plt.subplots(1,3, figsize=(10,3.5))
+#                        ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+#                        ax[0].set_title("true state step:{}/{}".format(ts,t))
+#                        ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
+#                        ax[1].set_title("rollout step:{}/{}".format(pn,pmcts.rollout_length))
+#                        ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
+#                        ax[2].set_title("rollout model:{}/{}".format(pn,pmcts.rollout_length))
+#                        plt.savefig(os.path.join(fpath,fname))
+#                        plt.close()
+#                    c+=1
+#        print("making gif")
+#        gif_path = os.path.join(fpath, 'seed_{}_reward_{}_gap_{}.gif'.format(seed, int(reward),gap))
+#        search = os.path.join(fpath, 'seed_*.png')
+#        cmd = 'convert -delay 1/1000 %s %s'%(search, gif_path)
+#        os.system(cmd)
+#
+#    except Exception, e:
+#        print(e)
+#        embed()
 
+# PLOT TRACES
 #    try:
 #        if not os.path.exists(fpath):
 #            os.makedirs(fpath)
