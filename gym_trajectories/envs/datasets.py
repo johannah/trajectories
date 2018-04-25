@@ -15,7 +15,7 @@ class FroggerDataset(Dataset):
 
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
-            raise
+            sys.exit()
         if limit is not None:
             self.indexes = self.indexes[:min(len(self.indexes), limit)]
 

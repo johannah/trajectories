@@ -86,21 +86,22 @@ def generate_results(base_path,data_loader,nr_logistic_mix,do_use_cuda):
             zsigma = vae.z_sigma.cpu().data.numpy()
             data_mu = np.vstack((data_mu,zmean))
             data_sigma = np.vstack((data_sigma,zsigma))
-            for ind, img_name in enumerate(img_names):
+            for ind, img_path in enumerate(img_names):
+                img_name = os.path.split(img_path)[1]
                 gen_img_name = img_name.replace('.png', 'conv_vae_gen.png')
                 #gen_latent_name = img_name.replace('.png', 'conv_vae_latents.npz')
-                imwrite(gen_img_name, inx_tilde[ind][0])
+                imwrite(os.path.join(base_path,gen_img_name), inx_tilde[ind][0])
                 #np.savez(gen_latent_name, zmean=zmean[ind], zsigma=zsigma[ind])
             if not batch_idx%10:
                 print 'Generate batch_idx: {} Time: {}'.format(
                     batch_idx, time.time() - start_time
                 )
-    np.savez(base_path+'mu_conv_vae.npz', data_mu)
-    np.savez(base_path+'sigma_conv_vae.npz', data_sigma)
+    np.savez(os.path.join(base_path,'mu_conv_vae.npz'), data_mu)
+    np.savez(os.path.join(base_path,'sigma_conv_vae.npz'), data_sigma)
 
 if __name__ == '__main__':
     import argparse
-    default_base_datadir = '../saved/'
+    default_base_datadir = '/localdata/jhansen/trajectories_frames/saved/'
     default_model_savepath = os.path.join(default_base_datadir, 'conv_vae_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
@@ -173,8 +174,8 @@ if __name__ == '__main__':
             save_checkpoint(state, filename=args.model_savepath)
 
     else:
-        #generate_results('../saved/test_', data_test_loader,nr_mix,use_cuda)
-        generate_results('../saved/train_', data_train_loader,nr_mix,use_cuda)
+        #generate_results('../saved/test_results/', data_test_loader,nr_mix,use_cuda)
+        generate_results('../saved/train_results/', data_train_loader,nr_mix,use_cuda)
 
 
 
