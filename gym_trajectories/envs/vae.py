@@ -124,8 +124,8 @@ if __name__ == '__main__':
             inputs, classes = Variable(inputs.resize_(batch_size, input_dim)), Variable(classes)
             optimizer.zero_grad()
             dec = vae(inputs)
-            from IPython import embed; embed()
             ll = latent_loss(vae.z_mean, vae.z_sigma)
+            from IPython import embed; embed()
             loss = criterion(dec, inputs) + ll
             loss.backward()
             optimizer.step()

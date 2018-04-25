@@ -13,7 +13,6 @@ from torchvision.utils import save_image
 import time
 from glob import glob
 import os
-from imageio import imread, imwrite
 from PIL import Image
 
 def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):

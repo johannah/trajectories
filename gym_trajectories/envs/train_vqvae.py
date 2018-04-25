@@ -30,7 +30,6 @@ def train(epoch,model,optimizer,train_loader,do_checkpoint,do_use_cuda):
 
         x_tilde, z_e_x, z_q_x, latents = model(x)
         z_q_x.retain_grad()
-
         #loss_1 = F.binary_cross_entropy(x_tilde, x)
         loss_1 = discretized_mix_logistic_loss(x_tilde,2*x-1,use_cuda=do_use_cuda)
         loss_1.backward(retain_graph=True)
@@ -82,7 +81,7 @@ def save_checkpoint(state, is_best=False, filename='model.pkl'):
         bestpath = os.path.join(os.path.split(filename)[0], 'model_best.pkl')
         shutil.copyfile(filename, bestpath)
 
-def generate_dataset(model,data_loader,nr_logistic_mix,do_use_cuda):
+def generate_results(model,data_loader,nr_logistic_mix,do_use_cuda):
     start_time = time.time()
     for batch_idx, (data, img_names) in enumerate(data_loader):
         if do_use_cuda:
@@ -94,10 +93,11 @@ def generate_dataset(model,data_loader,nr_logistic_mix,do_use_cuda):
         # z_e_x is output of encoder
         # z_q_x is input into decoder
         # latents is code book
-        #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        #nx_tilde = x_tilde.cpu().data.numpy()
-        #nx_tilde = (0.5*nx_tilde+0.5)*255
-        #nx_tilde = nx_tilde.astype(np.uint8)
+        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+        nx_tilde = x_tilde.cpu().data.numpy()
+        nx_tilde = (0.5*nx_tilde+0.5)*255
+        nx_tilde = nx_tilde.astype(np.uint8)
+        embed()
         #vae_input = z_e_x.contiguous().view(z_e_x.shape[0],-1)
         #vqvae_rec_images = x_tilde.cpu().data.numpy()
         nz_q_x = z_q_x.contiguous().view(z_q_x.shape[0],-1).cpu().data.numpy()
@@ -116,7 +116,7 @@ def generate_dataset(model,data_loader,nr_logistic_mix,do_use_cuda):
 if __name__ == '__main__':
     import argparse
     default_base_datadir = '../saved/'
-    default_model_savepath = os.path.join(default_base_datadir, 'frogger_model.pkl')
+    default_model_savepath = os.path.join(default_base_datadir, 'vqvae_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
@@ -124,9 +124,9 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
     parser.add_argument('-l', '--model_loadpath', default=None)
     parser.add_argument('-z', '--num_z', default=32, type=int)
-    parser.add_argument('-e', '--num_episodes', default=150, type=int)
+    parser.add_argument('-e', '--num_episodes', default=350, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
-    parser.add_argument('-g', '--generate_dataset', action='store_true', default=False, help='generate dataset of codes')
+    parser.add_argument('-g', '--generate_results', action='store_true', default=False, help='generate dataset of codes')
 
     args = parser.parse_args()
     train_data_dir = os.path.join(args.datadir, 'imgs_train')
@@ -134,11 +134,12 @@ if __name__ == '__main__':
     use_cuda = args.cuda
 
     nr_logistic_mix = 10
+    num_clusters = 16
     if use_cuda:
         print("using gpu")
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z).cuda()
+        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=args.num_z).cuda()
     else:
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=args.num_z)
+        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=args.num_z)
     opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
     epoch = 0
     if args.model_loadpath is not None:
@@ -164,7 +165,7 @@ if __name__ == '__main__':
         else:
             x_test = Variable(test_data)
 
-    if not args.generate_dataset:
+    if not args.generate_results:
         test_img = args.model_savepath.replace('.pkl', '_test.png')
         for i in xrange(epoch,epoch+args.num_episodes):
             vmodel, opt, state = train(i,vmodel,opt,data_train_loader,

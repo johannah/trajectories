@@ -44,7 +44,7 @@ def generate_results(data_loader):
         else:
             x = Variable(data, requires_grad=False)
         dec = vae(x)
-        decr = dec.contiguous().view(dec.shape[0],32, 10,10)
+        decr = dec.contiguous().view(dec.shape[0], 32, 10,10)
         udec = (decr*z_q_x_std)+z_q_x_mean
         # TODO - knearest neighbors
         # going to use vae.z_mean, and vae.z_std

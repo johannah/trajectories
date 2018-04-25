@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn.utils import weight_norm as wn
 import numpy as np
-
+from IPython import embed
 
 def concat_elu(x):
     """ like concatenated ReLU (http://arxiv.org/abs/1603.05201), but then with ELU """
@@ -32,7 +32,7 @@ def log_prob_from_logits(x):
     return x - m - torch.log(torch.sum(torch.exp(x - m), dim=axis, keepdim=True))
 
 
-def discretized_mix_logistic_loss(prediction, target, use_cuda=False):
+def discretized_mix_logistic_loss(prediction, target, nr_mix=10, use_cuda=False):
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
     l = prediction
@@ -44,10 +44,8 @@ def discretized_mix_logistic_loss(prediction, target, use_cuda=False):
 
     # here and below: unpacking the params of the mixture of logistics
     #nr_mix = int(ls[-1] / 10)
-    nr_mix = 10
     # l is prediction
     logit_probs = l[:, :, :, :nr_mix]
-    #from IPython import embed; embed()
 
     l = l[:, :, :, nr_mix:].contiguous().view(xs + [nr_mix*2]) # 3--changed to 1 for mean, scale, coef
     means = l[:, :, :, :, :nr_mix]
@@ -115,8 +113,17 @@ def discretized_mix_logistic_loss(prediction, target, use_cuda=False):
 
 
 def discretized_mix_logistic_loss_1d(x, l, use_cuda=False):
+    # Pytorch ordering
+    x = x.permute(0, 2, 3, 1)
+    l = l.permute(0, 2, 3, 1)
+    xs = [int(y) for y in x.size()]
+    ls = [int(y) for y in l.size()]
+
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
+    l = prediction
+    x = target
+    embed()
     x = x.permute(0, 2, 3, 1)
     l = l.permute(0, 2, 3, 1)
     xs = [int(y) for y in x.size()]
@@ -220,7 +227,7 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     temp.uniform_(1e-5, 1. - 1e-5)
     # hack to make deterministic JRH
     # could also just take argmax of logit_probs
-    temp = temp*0.0+0.5
+    #temp = temp*0.0+0.5
     temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
 
@@ -236,7 +243,7 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     if l.is_cuda : u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
     # hack to make deterministic JRH
-    u = u*0.0 + 0.5
+    #u= u*0.0+0.5
     u = Variable(u)
 
     if only_mean:
