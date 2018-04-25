@@ -20,6 +20,10 @@ from datasets import FroggerDataset
 best_inds = np.load('best_inds.npz')['arr_0']
 mus = np.load('train_mu_conv_vae.npz')['arr_0']
 sigmas = np.load('train_sigma_conv_vae.npz')['arr_0']
+diff = np.abs(np.max(mus, axis=0) - np.min(mus, axis=0))
+# filter out inds which are near zero - should be about 50 left
+worst_inds = np.where(diff<1)[0]
+np.savez('worst_inds.npz',worst_inds)
 
 rdn = np.random.RandomState(3433)
 
@@ -27,39 +31,41 @@ def generate_reconstruction(base_path,data_loader,nr_logistic_mix,do_use_cuda):
     if not os.path.exists(base_path):
         os.makedirs(base_path)
     for i, (mu,sigma) in enumerate(zip(mus,sigmas)):
-        if do_use_cuda:
-            tmu = Variable(torch.FloatTensor(mu), requires_grad=False).cuda()
-            tsigma = Variable(torch.FloatTensor(sigma), requires_grad=False).cuda()
-        else:
-            tmu = Variable(torch.FloatTensor(mu), requires_grad=False)
-            tsigma = Variable(torch.FloatTensor(sigma), requires_grad=False)
+        if 100 <i < 200:
+            if do_use_cuda:
+                tmu = Variable(torch.FloatTensor(mu), requires_grad=False).cuda()
+                tsigma = Variable(torch.FloatTensor(sigma), requires_grad=False).cuda()
+            else:
+                tmu = Variable(torch.FloatTensor(mu), requires_grad=False)
+                tsigma = Variable(torch.FloatTensor(sigma), requires_grad=False)
 
-        bs = 20
-        base = Variable(torch.from_numpy(np.zeros((bs,800))).float(), requires_grad=False)
-        for s in range(bs):
-            base_noise = Variable(torch.from_numpy(rdn.normal(0,1,size=tsigma.size())).float(), requires_grad=False)
-            base[s] = tmu+tsigma*base_noise
+            bs = 20
+            base = Variable(torch.from_numpy(np.zeros((bs,800))).float(), requires_grad=False)
+            for s in range(bs):
+                base_noise = Variable(torch.from_numpy(rdn.normal(0,1,size=tsigma.size())).float(), requires_grad=False)
+                base[s] = tmu+tsigma*base_noise
 
-        z = base.contiguous().view(bs,32,5,5)
-        x_d = vae.decoder(z)
-        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        nx_tilde = x_tilde.cpu().data.numpy()
-        inx_tilde = ((0.5*nx_tilde+0.5)*255).astype(np.uint8)
-        mean_tilde = np.mean(inx_tilde, axis=0)[0].astype(np.uint8)
-        max_tilde = np.max(inx_tilde, axis=0)[0].astype(np.uint8)
-        mean_img_name = os.path.join(base_path, 'mean_%05d.png'%(i))
-        a_img_name = os.path.join(base_path, 'adapt_%05d.png'%(i))
-        max_img_name = os.path.join(base_path, 'max_%05d.png'%(i))
-        imwrite(mean_img_name, mean_tilde)
-        imwrite(max_img_name, max_tilde)
-        nonzero = np.count_nonzero(inx_tilde,axis=0)[0]
-        adapt_tilde = max_tilde
-        # must have 3 instances to go into adapt
-        adapt_tilde[nonzero<3] = 0
-        imwrite(a_img_name, adapt_tilde)
-        #for q in range(bs):
-            #img_name = os.path.join(base_path, 'mu_%05d_%02d.png'%(i,q))
-            #imwrite(img_name, inx_tilde[q,0])
+            base[:,worst_inds] = 0.0
+            z = base.contiguous().view(bs,32,5,5)
+            x_d = vae.decoder(z)
+            x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+            nx_tilde = x_tilde.cpu().data.numpy()
+            inx_tilde = ((0.5*nx_tilde+0.5)*255).astype(np.uint8)
+            mean_tilde = np.mean(inx_tilde, axis=0)[0].astype(np.uint8)
+            max_tilde = np.max(inx_tilde, axis=0)[0].astype(np.uint8)
+            mean_img_name = os.path.join(base_path, 'gmean_%05d.png'%(i))
+            a_img_name = os.path.join(base_path, 'gadapt_%05d.png'%(i))
+            max_img_name = os.path.join(base_path, 'gmax_%05d.png'%(i))
+            imwrite(mean_img_name, mean_tilde)
+            imwrite(max_img_name, max_tilde)
+            nonzero = np.count_nonzero(inx_tilde,axis=0)[0]
+            adapt_tilde = max_tilde
+            # must have 3 instances to go into adapt
+            adapt_tilde[nonzero<3] = 0
+            imwrite(a_img_name, adapt_tilde)
+            #for q in range(bs):
+                #img_name = os.path.join(base_path, 'mu_%05d_%02d.png'%(i,q))
+                #imwrite(img_name, inx_tilde[q,0])
 
 
 def generate_results(base_path,data_loader,nr_logistic_mix,do_use_cuda):

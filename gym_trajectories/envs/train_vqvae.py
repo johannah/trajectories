@@ -115,7 +115,7 @@ def generate_results(model,data_loader,nr_logistic_mix,do_use_cuda):
 
 if __name__ == '__main__':
     import argparse
-    default_base_datadir = '../saved/'
+    default_base_datadir = '../../../trajectories_frames/saved/'
     default_model_savepath = os.path.join(default_base_datadir, 'vqvae_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     use_cuda = args.cuda
 
     nr_logistic_mix = 10
-    num_clusters = 16
+    num_clusters = 64
     if use_cuda:
         print("using gpu")
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=args.num_z).cuda()
