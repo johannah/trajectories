@@ -20,9 +20,11 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 
-from gym_trajectories.envs.vq_vae import AutoEncoder, to_scalar
+from gym_trajectories.envs.vq_vae_small import AutoEncoder, to_scalar
+from gym_trajectories.envs.conv_vae import Encoder, Decoder, VAE
 from gym_trajectories.envs.utils import discretized_mix_logistic_loss
 from gym_trajectories.envs.utils import sample_from_discretized_mix_logistic
+worst_inds = np.load('../gym_trajectories/envs/worst_inds.npz')['arr_0']
 
 def softmax(x):
     assert len(x.shape) == 1
@@ -108,8 +110,11 @@ def get_vq_from_road(road_state):
     uvroad_state = ((0.5*vroad_state+0.5)*255).astype(np.uint8)
     return uvroad_state
 
-def get_vq_from_roads(road_states):
-    print("precomputing road state estimates")
+def get_none_from_roads(road_states):
+    return road_states
+
+def get_vqvae_from_roads(road_states):
+    print("precomputing vqvae road state estimates")
     road_states = Variable(transforms.ToTensor()(road_states.transpose(1,2,0).astype(np.float32)))[:,None]
     x_d, z_e_x, z_q_x, latents = vmodel(road_states)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
@@ -117,12 +122,36 @@ def get_vq_from_roads(road_states):
     uvroad_states = ((0.5*vroad_state+0.5)*255).astype(np.uint8)[:,0]
     return uvroad_states
 
+def get_vae_from_roads(iroad_states):
+    print("precomputing vae road state estimates")
+    bs = 20
+    n,y,x = iroad_states.shape
+    road_states = Variable(transforms.ToTensor()(iroad_states.transpose(1,2,0).astype(np.float32)))[:,None]
+    nroad_states = np.zeros_like(iroad_states)
+    tilde_base = Variable(torch.from_numpy(np.zeros((bs,1,y,x))).float(),requires_grad=False)
+    input_base = Variable(torch.from_numpy(np.zeros((bs,1,y,x))).float(),requires_grad=False)
+
+    # treat each frame as a batch
+    for frame in range(n):
+        print('starting vae frame {}'.format(frame))
+        for b in range(bs):
+            input_base[b] = road_states[frame]
+        x_d = vae(input_base)
+        tilde_base = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+        vroad = tilde_base.cpu().data.numpy() 
+        uvroad = ((0.5*vroad+0.5)*255).astype(np.uint8)[:,0]
+        nonzero = np.count_nonzero(uvroad,axis=0)
+        max_ = np.max(uvroad, axis=0)
+        max_[nonzero<5] = 0
+        nroad_states[frame] = max_
+    return nroad_states
+
+
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, 
-            n_playouts=1000, rollout_length=300, use_est=False):
+            n_playouts=1000, rollout_length=300, estimator=get_none_from_roads):
         # use estimator for planning, if false, use env
-        self.use_est = use_est
         self.env = env
         self.rdn = random_state
         self.node_probs_fn = node_probs_fn
@@ -135,8 +164,7 @@ class PMCTS(object):
         self.step = 0
         self.rollout_length = rollout_length
         self.nodes_seen = {}
-        if self.use_est:
-            self.road_map_ests = get_vq_from_roads(self.env.road_maps)
+        self.road_map_ests = estimator(self.env.road_maps)
 
     def get_children(self, node):
         print('node name', node.name)
@@ -192,10 +220,7 @@ class PMCTS(object):
                 # stack true state then vstate
                 frames.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
                 node = new_node
-                if self.use_est:
-                    state = next_vstate
-                else:
-                    state = next_state
+                state = next_vstate
 
     def get_rollout_action(self, state):
         valid_actions = self.env.action_space
@@ -212,7 +237,8 @@ class PMCTS(object):
         # comes in already transformed
         rframes = []
 
-        try:
+        #try:
+        if 1:
             finished,value = self.env.set_state(state, state_index)
             if finished:
                 return value, rframes
@@ -230,11 +256,7 @@ class PMCTS(object):
                     next_vstate = [next_state[0], next_state[1], self.road_map_ests[state_index]]
                     # stack true state then vstate
                     rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
-
-                    if self.use_est:
-                        state = next_vstate
-                    else:
-                        state = next_state
+                    state = next_vstate
 
                     # true and vq state
                     c+=1
@@ -248,9 +270,9 @@ class PMCTS(object):
                     finished = True
 
             logging.debug('-------------------------------------------')
-        except Exception, e:
-            print(e)
-            embed()
+        #except Exception, e:
+        #    print(e)
+        #    embed()
         return value, rframes
 
 
@@ -292,6 +314,7 @@ class PMCTS(object):
         try:
             actions, visits = zip(*act_visits)
         except Exception, e:
+            print("ACTIONS VISITS")
             print(e)
             embed()
 
@@ -336,8 +359,96 @@ class PMCTS(object):
         self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
         self.tree_subs_ = []
 
+def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes, 
+                         model_road_maps, rollout_length, 
+                         t,plot_error=False,gap=3,min_agents_alive=4):
+    true_road_maps = true_env.road_maps
+    true_goal_map = true_env.goal_map
+    if plot_error:
+        fpath = os.path.join(base_path,model_type,'Eseed_{}'.format(seed)) 
+    else:
+        fpath = os.path.join(base_path,model_type,'Pseed_{}'.format(seed)) 
+
+    if not os.path.exists(fpath):
+        os.makedirs(fpath)
+    fast_path = os.path.join(base_path,model_type,'Tseed_{}'.format(seed)) 
+    if not os.path.exists(fast_path):
+        os.makedirs(fast_path)
+    for ts in range(len(sframes)):
+        print("plotting true frame {}/{}".format(ts,t))
+        # true frame
+        state_index = sframes[ts][0]
+        ry,rx  = sframes[ts][1]
+        ry = ry/float(true_env.ysize)
+        rx = rx/float(true_env.xsize)
+        gy = true_env.goal.y/float(true_env.ysize)
+        gx = true_env.goal.x/float(true_env.xsize)
+        true_state = true_env.road_maps[state_index]
+        state = ((gy, gx), (ry,rx), true_state)
+        actual_frame = true_env.get_state_plot(state)
+
+        model_state = model_road_maps[state_index]
+        vstate = ((gy, gx), (ry,rx), model_state)
+        model_frame = true_env.get_state_plot(vstate)
+
+        fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, ts)
+        ft,axt=plt.subplots(1,2, figsize=(5,4))
+        axt[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+        axt[0].set_title("true step:{}/{}".format(ts,t))
+        axt[1].imshow(model_frame, origin='lower', vmin=0, vmax=255 )
+        axt[1].set_title("{} model step:{}/{}".format(model_type, ts,t))
+        ft.tight_layout()
+        plt.savefig(os.path.join(fast_path,fast_fname))
+        plt.close()
+
+        # list of tuples with (real playout state, est playout state)
+
+        playouts = sframes[ts][2]
+        c = 0
+        for pn, pframe in enumerate(playouts):
+                if not c%gap:
+                    if c > 10:
+                        if pframe.sum()<(min_agents_alive*true_env.robot.color-1):
+                            continue
+
+                    print("plotting step {}/{} playout step {}".format(ts,t,pn))
+                    true_playout_frame = true_road_maps[pn]+pframe+true_goal_map
+                    est_playout_frame = model_road_maps[pn]+pframe+true_goal_map
+
+                    fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
+                    if plot_error:
+                        f,ax=plt.subplots(1,4, figsize=(16,3.5))
+                    else:
+                        f,ax=plt.subplots(1,3, figsize=(12,3.5))
+
+                    ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+                    ax[0].set_title("true state step:{}/{}".format(ts,t))
+                    ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
+                    ax[1].set_title("true rollout step:{}/{}".format(pn,rollout_length))
+                    ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
+                    ax[2].set_title("{} model rollout step:{}/{}".format(model_type,pn,rollout_length))
+                    if plot_error:
+                        est_err = np.sqrt((true_road_maps[pn]-model_road_maps[pn]).astype(np.float)**2)
+                        ax[3].imshow(est_err, origin='lower', cmap=plt.cm.gray)
+                        ax[3].set_title("error in model:{}/{}".format(pn,rollout_length))
+                    f.tight_layout()
+                    plt.savefig(os.path.join(fpath,fname))
+                    plt.close()
+                c+=1
+    print("making gif")
+    gif_path = os.path.join(fpath, 'seed_{}_reward_{}_gap_{}.gif'.format(seed, int(reward),gap))
+    search = os.path.join(fpath, 'seed_*.png')
+    cmd = 'convert -delay 1/1000 %s %s'%(search, gif_path)
+    os.system(cmd)
+
+    fast_gif_path = os.path.join(fast_path, 'fast_seed_{}_reward_{}.gif'.format(seed, int(reward),gap))
+    fsearch = os.path.join(fast_path, '*.png')
+    cmd = 'convert -delay 1/1000 %s %s'%(fsearch, fast_gif_path)
+    os.system(cmd)
+
+
 def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
-              n_playouts=300, max_rollout_length=50):
+              n_playouts=300, max_rollout_length=50, model_type='vae'):
 
     # log params
     results = {'decision_ts':[], 'dis_to_goal':[], 'actions':[],
@@ -352,15 +463,26 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance)
 
     mcts_rdn = np.random.RandomState(seed+1)
+    do_render = False
+    if model_type == 'vae':
+        estimator=get_vae_from_roads
+        print("ESTIMATING USING VAE")
+    elif model_type=='vqvae':
+        estimator=get_vqvae_from_roads
+        print("ESTIMATING USING VQVAE")
+    else:
+        estimator=get_none_from_roads
+
     #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=equal_node_probs_fn,
     #            n_playouts=n_playouts,rollout_length=max_rollout_length)
     pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
-                n_playouts=n_playouts,rollout_length=max_rollout_length, use_est=True)
+                n_playouts=n_playouts,rollout_length=max_rollout_length, estimator=estimator)
 
     t = 0
     finished = False
     # draw initial state
-    #true_env.render(state)
+    if do_render:
+        true_env.render(state)
     print("SEED", seed)
     frames = []
     sframes = []
@@ -373,7 +495,7 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         st = time.time()
         action, action_probs, playout_frames, playout_states = pmcts.get_best_action(deepcopy(state), t)
         frames.append((true_env.get_state_plot(state), playout_frames))
-        sframes.append((true_env.get_state_plot(state), playout_states))
+        sframes.append((t, (ry,rx),  playout_states))
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
@@ -388,7 +510,8 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         else:
             results['reward'] = reward
             states.append(next_state)
-        #true_env.render(next_state)
+        if do_render:
+            true_env.render(next_state)
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -401,146 +524,27 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
-    #true_env.close_plot()
+    true_env.close_plot()
 
     plt.clf()
     plt.close()
-    fpath = 'trials/road-vqvae/Eseed_{}'.format(seed)
-# PLOT TRUE SCATTERS
-#    try:
-#
-#        if not os.path.exists(fpath):
-#            os.makedirs(fpath)
-#        for ts in range(len(sframes)):
-#            print("plotting true frame {}/{}".format(ts,t))
-#            # true frame
-#            actual_frame = sframes[ts][0]
-#            fname = 'seed_%06d_tstep_%04d.png'%(seed, ts)
-#            f,ax=plt.subplots(1,1, figsize=(3,3.5))
-#            ax.imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-#            ax.set_title("true step:{}/{} reward:{}".format(ts,t,round(reward,2)))
-#            plt.savefig(os.path.join(fpath,fname))
-#            plt.close()
-#        print("making gif")
-#        gif_path = os.path.join(fpath, 'seed_{}_reward_{}.gif'.format(seed, int(reward)))
-#        search = os.path.join(fpath, 'seed_*.png')
-#        cmd = 'convert -delay 1/60 %s %s'%(search, gif_path)
-#        os.system(cmd)
-#
-#    except Exception, e:
-#        print(e)
-#        embed()
-# PLOT AGENT SCATTERS
-
-    try:
-
-        if not os.path.exists(fpath):
-            os.makedirs(fpath)
-        for ts in range(len(sframes)):
-            print("plotting true frame {}/{}".format(ts,t))
-            # true frame
-            actual_frame = sframes[ts][0]
-            # list of tuples with (real playout state, est playout state)
-            playouts = sframes[ts][1]
-            c = 0
-            gap = 5 
-            for pn, pframe in enumerate(playouts):
-                    if not c%gap:
-                        if c > 10:
-                            if pframe.sum()<(4*true_env.robot.color-1):
-                                continue
-
-                        print(pframe.sum())
-                        print("plotting step {}/{} playout step {}".format(ts,t,pn))
-                        true_playout_frame = true_env.road_maps[pn]+pframe+true_env.goal_map
-                        est_playout_frame = pmcts.road_map_ests[pn]+pframe+true_env.goal_map
-                        est_err = np.sqrt((true_env.road_maps[pn]-pmcts.road_map_ests[pn]).astype(np.float)**2)
-
-                        fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
-                        f,ax=plt.subplots(1,4, figsize=(14,3.5))
-                        ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-                        ax[0].set_title("true state step:{}/{}".format(ts,t))
-                        ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-                        ax[1].set_title("rollout step:{}/{}".format(pn,pmcts.rollout_length))
-                        ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-                        ax[2].set_title("rollout model:{}/{}".format(pn,pmcts.rollout_length))
-                        ax[3].imshow(est_err, origin='lower')
-                        ax[3].set_title("error in model:{}/{}".format(pn,pmcts.rollout_length))
-                        plt.savefig(os.path.join(fpath,fname))
-                        plt.close()
-                    c+=1
-        print("making gif")
-        gif_path = os.path.join(fpath, 'seed_{}_reward_{}_gap_{}_error.gif'.format(seed, int(reward),gap))
-        search = os.path.join(fpath, 'seed_*.png')
-        cmd = 'convert -delay 1/1000 %s %s'%(search, gif_path)
-        os.system(cmd)
-
-    except Exception, e:
-        print(e)
-        embed()
-
-# PLOT TRACES
-#    try:
-#        if not os.path.exists(fpath):
-#            os.makedirs(fpath)
-#        for ts in range(len(frames)):
-#            print("plotting true frame {}/{}".format(ts,t))
-#            # true frame
-#            actual_frame = frames[ts][0]
-#            # list of tuples with (real playout state, est playout state)
-#            playouts = frames[ts][1]
-#            keys = playouts.keys()
-#            inds = range(len(keys))
-#            selected_playouts = rdn.choice(inds, min(1, len(inds)), replace=False)
-#            for pn in sorted(selected_playouts):
-#                key = keys[pn]
-#                score = key[1]
-#                fs = playouts[key]
-#                num = key[0]
-#                print("plotting step {}/{} playout {}".format(ts,t,key))
-#                for pf, (true_playout_frame,est_playout_frame) in enumerate(fs):
-#                    if not pf:
-#                        fname = 'seed_%06d_tstep_%04d_pnum_%04d_pstep_%04d.png'%(seed, ts, num, pf)
-#                        f,ax=plt.subplots(1,3, figsize=(10,3.5))
-#                        ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-#                        ax[0].set_title("true state step: {}".format(ts))
-#                        ax[1].imshow(true_playout_frame*0, origin='lower', vmin=0, vmax=255 )
-#                        ax[1].set_title("rollout real num:{} step:{}".format(num,pf))
-#                        ax[2].imshow(est_playout_frame*0, origin='lower', vmin=0, vmax=255 )
-#                        ax[2].set_title("rollout model reward:{}".format(pf,round(score,2)))
-#                        plt.savefig(os.path.join(fpath,fname))
-#                        plt.close()
-# 
-#                    pf += 1
-#                    fname = 'seed_%06d_tstep_%04d_pnum_%04d_pstep_%04d.png'%(seed, ts, num, pf)
-#                    f,ax=plt.subplots(1,3, figsize=(10,3.5))
-#                    ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-#                    ax[0].set_title("true state step: {}".format(ts))
-#                    ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-#                    ax[1].set_title("sample rollout step:{}".format(pf))
-#                    ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-#                    ax[2].set_title("sample model reward:{}".format(round(score,2)))
-#                    plt.savefig(os.path.join(fpath,fname))
-#                    plt.close()
-#        gif_path = os.path.join(fpath, 'seed_{}_reward_{}.gif'.format(seed, int(reward)))
-#        search = os.path.join(fpath, 'seed_*.png')
-#        cmd = 'convert %s %s'%(search, gif_path)
-#        os.system(cmd)
-#
-#    except Exception, e:
-#        print(e)
-#        embed()
-
+    #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
+    if args.plot_playouts:
+        plot_playout_scatters(true_env, 'trials', model_type, seed, reward, sframes, 
+                          pmcts.road_map_ests, pmcts.rollout_length, 
+                          t,plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4)
     return results
-
 
 if __name__ == "__main__":
     import argparse
     # this seems to work well
-    #python roadway_pmcts.py -y 25 -x 25 --seed 45 -r 100  -p 100 -l 6
+    #python roadway_pmcts.py --seed 45 -r 100  -p 100 -l 6
 
-    default_base_datadir = '../gym_trajectories/saved/'
-    default_model_savepath = os.path.join(default_base_datadir, 'cars_only_train.pkl')
+    default_base_datadir = '../../trajectories_frames/saved/'
+    default_vae_model_savepath = os.path.join(default_base_datadir, 'conv_vae.pkl')
+    default_vqvae_model_savepath = os.path.join(default_base_datadir, 'cars_only_train.pkl')
+    #default_vqvae_model_savepath = os.path.join(default_base_datadir, 'vqvae_extra_layer64clusters.pkl')
+    #default_vqvae_model_savepath = os.path.join(default_base_datadir, 'vqvae_extra_layer32clusters.pkl')
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
     parser.add_argument('-e', '--num_episodes', type=int, default=10, help='num traces to run')
@@ -550,34 +554,70 @@ if __name__ == "__main__":
     parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
     parser.add_argument('-p', '--num_playouts', type=int, default=200, help='number of playouts for each step')
     parser.add_argument('-r', '--rollout_steps', type=int, default=100, help='limit number of steps taken be random rollout')
-    parser.add_argument('-m', '--model_loadpath', type=str, default=default_model_savepath)
+    parser.add_argument('-m', '--model_loadpath', type=str, default="None")
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
+    parser.add_argument('-t', '--model_type', type=str, default="None")
 
+    parser.add_argument('--do_plot_error', action='store_true', default=True)
+    parser.add_argument('--plot_true', action='store_true', default=False)
+    parser.add_argument('--plot_playouts', action='store_true', default=True)
+    parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
+ 
     args = parser.parse_args()
     use_cuda = args.cuda
     seed = args.seed
-    num_z = 32
+    dsize = 40
     nr_logistic_mix = 10
+    probs_size = (2*nr_logistic_mix)+nr_logistic_mix
+    latent_size = 32
 
-    if use_cuda:
-        print("using gpu")
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=num_z).cuda()
+    if args.model_type == 'vae':
+        if args.model_loadpath == "None":
+            args.model_loadpath = default_vae_model_savepath 
 
-    else:
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, encoder_output_size=num_z)
-    opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
-    epoch = 0
-    if os.path.exists(args.model_loadpath):
-        vqvae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
-        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
-        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
-        opt.load_state_dict(vqvae_model_dict['optimizer'])
-        epoch = vqvae_model_dict['epoch']
-        print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
-    else:
-        print('could not find checkpoint at {}'.format(args.model_loadpath))
-        sys.exit()
+        encoder = Encoder(latent_size)
+        decoder = Decoder(latent_size, probs_size)
+        vae = VAE(encoder, decoder, use_cuda)
+        if use_cuda:
+            vae = vae.cuda()
+            vae.encoder = vae.encoder.cuda()
+            vae.decoder = vae.decoder.cuda()
+
+        epoch = 0
+        if os.path.exists(args.model_loadpath):
+            vae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
+            vae.load_state_dict(vae_model_dict['state_dict'])
+            epoch = vae_model_dict['epoch']
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
+        else:
+            print('could not find checkpoint at {}'.format(args.model_loadpath))
+            sys.exit()
+
+    if args.model_type == 'vqvae':
+
+        if args.model_loadpath == "None":
+            args.model_loadpath = default_vqvae_model_savepath 
+        num_z = 32
+        nr_logistic_mix = 10
+        num_clusters = 512
+
+        if use_cuda:
+            print("using gpu")
+            vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=num_z).cuda()
+
+        else:
+            vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, num_clusters=num_clusters, encoder_output_size=num_z)
+        epoch = 0
+        if os.path.exists(args.model_loadpath):
+            vqvae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
+            vmodel.load_state_dict(vqvae_model_dict['state_dict'])
+            epoch = vqvae_model_dict['epoch']
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
+        else:
+            print('could not find checkpoint at {}'.format(args.model_loadpath))
+            sys.exit()
+
 
     goal_dis = args.max_goal_distance
     if args.debug:
@@ -588,7 +628,8 @@ if __name__ == "__main__":
     all_results = []
     for i in range(args.num_episodes):
         r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
-                      max_goal_distance=goal_dis, n_playouts=args.num_playouts, max_rollout_length=args.rollout_steps)
+                      max_goal_distance=goal_dis, n_playouts=args.num_playouts,
+                      max_rollout_length=args.rollout_steps, model_type=args.model_type)
 
         seed +=1
         all_results.append(r)

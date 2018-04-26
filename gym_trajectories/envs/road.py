@@ -157,7 +157,7 @@ class Particle():
             try:
                 self.local_map[inds[0,:], inds[1,:]] = self.color
             except Exception, e:
-                print(e)
+                print('particle plot', e)
                 embed()
             self.steps +=1
 
@@ -235,6 +235,14 @@ class RoadEnv():
     def get_robot_state(self,state):
         ry = int(np.rint(state[1][0]*self.ysize))
         rx = int(np.rint(state[1][1]*self.xsize))
+        if ry>self.ysize-1:
+            ry = self.ysize-1
+        if rx>self.xsize-1:
+            rx = self.xsize-1
+        if rx<0:
+            rx = 0
+        if ry<0:
+            ry = 0
         return (ry,rx)
 
     def get_goal_state(self,state):
@@ -485,14 +493,21 @@ class RoadEnv():
         self.plotted = False
 
     def get_state_plot(self, state):
-        self.robot.alive = True
-        ry = float(state[1][0]*self.ysize)
-        rx = float(state[1][1]*self.xsize)
-        self.robot.set_state(ry,rx)
-        gy =  float(state[0][0]*self.ysize)
-        gx =  float(state[0][1]*self.xsize)
-        self.goal.set_state(gy,gx)
-        show_state = state[2]+self.robot_map+self.goal_map
+        try:
+            self.robot.alive = True
+            ry = float(state[1][0]*self.ysize)
+            rx = float(state[1][1]*self.xsize)
+            self.robot.set_state(ry,rx)
+            gy =  float(state[0][0]*self.ysize)
+            gx =  float(state[0][1]*self.xsize)
+            self.goal.set_state(gy,gx)
+            show_state = state[2]+self.robot.local_map+self.goal.local_map
+            if ry > 1000:
+                print("TOO BIG INPUT")
+                embed()
+        except Exception, e:
+            print("env state plot")
+            embed()
         return show_state
 
     def render(self, state):

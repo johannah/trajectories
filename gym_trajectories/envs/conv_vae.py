@@ -106,7 +106,6 @@ class VAE(torch.nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         self.use_cuda = use_cuda
-        self.best_inds = np.load('best_inds.npz')
         self._enc_mu = torch.nn.Linear(800,800)
         self._enc_log_sigma = torch.nn.Linear(800,800)
 
