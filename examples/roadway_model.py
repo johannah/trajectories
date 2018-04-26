@@ -391,12 +391,28 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
         vstate = ((gy, gx), (ry,rx), model_state)
         model_frame = true_env.get_state_plot(vstate)
 
+        err = np.zeros_like(true_road_maps[0])
+        true_car = true_road_maps[state_index]>0
+        pred_car = model_road_maps[state_index]>0
+        true_free = true_road_maps[state_index]<1
+        pred_free = model_road_maps[state_index]<1
+        # predict car where there was free space
+        false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
+        err[false_pos>1] = 15 # false pos
+
+        # predict free where there was car  # bad
+        false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
+        err[false_neg>1] = 250 # false neg
+
+
         fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, ts)
-        ft,axt=plt.subplots(1,2, figsize=(5,4))
+        ft,axt=plt.subplots(1,3, figsize=(9,3))
         axt[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
         axt[0].set_title("true step:{}/{}".format(ts,t))
         axt[1].imshow(model_frame, origin='lower', vmin=0, vmax=255 )
         axt[1].set_title("{} model step:{}/{}".format(model_type, ts,t))
+        axt[2].imshow(err, origin='lower', cmap=plt.cm.gray )
+        axt[2].set_title("model error".format(model_type))
         ft.tight_layout()
         plt.savefig(os.path.join(fast_path,fast_fname))
         plt.close()
@@ -428,8 +444,20 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
                     ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
                     ax[2].set_title("{} model rollout step:{}/{}".format(model_type,pn,rollout_length))
                     if plot_error:
-                        est_err = np.sqrt((true_road_maps[pn]-model_road_maps[pn]).astype(np.float)**2)
-                        ax[3].imshow(est_err, origin='lower', cmap=plt.cm.gray)
+                        err = np.zeros_like(true_road_maps[0])
+                        true_car = true_road_maps[pn]>0
+                        pred_car = model_road_maps[pn]>0
+                        true_free = true_road_maps[pn]<1
+                        pred_free = model_road_maps[pn]<1
+                        # predict car where there was free space
+                        false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
+                        err[false_pos>1] = 15 # false pos
+
+                        # predict free where there was car  # bad
+                        false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
+                        err[false_neg>1] = 250 # false neg
+
+                        ax[3].imshow(err, origin='lower', cmap=plt.cm.gray)
                         ax[3].set_title("error in model:{}/{}".format(pn,rollout_length))
                     f.tight_layout()
                     plt.savefig(os.path.join(fpath,fname))
@@ -438,13 +466,13 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
     print("making gif")
     gif_path = os.path.join(fpath, 'seed_{}_reward_{}_gap_{}.gif'.format(seed, int(reward),gap))
     search = os.path.join(fpath, 'seed_*.png')
-    cmd = 'convert -delay 1/1000 %s %s'%(search, gif_path)
-    os.system(cmd)
+    cmd = 'convert -delay 1/100000 %s %s'%(search, gif_path)
+    #os.system(cmd)
 
     fast_gif_path = os.path.join(fast_path, 'fast_seed_{}_reward_{}.gif'.format(seed, int(reward),gap))
     fsearch = os.path.join(fast_path, '*.png')
-    cmd = 'convert -delay 1/1000 %s %s'%(fsearch, fast_gif_path)
-    os.system(cmd)
+    cmd = 'convert -delay 1/30 %s %s'%(fsearch, fast_gif_path)
+    #os.system(cmd)
 
 
 def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
@@ -547,7 +575,7 @@ if __name__ == "__main__":
     #default_vqvae_model_savepath = os.path.join(default_base_datadir, 'vqvae_extra_layer32clusters.pkl')
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
-    parser.add_argument('-e', '--num_episodes', type=int, default=10, help='num traces to run')
+    parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num traces to run')
     parser.add_argument('-y', '--ysize', type=int, default=40, help='pixel size of game in y direction')
     parser.add_argument('-x', '--xsize', type=int, default=40, help='pixel size of game in x direction')
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
@@ -561,7 +589,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--do_plot_error', action='store_true', default=True)
     parser.add_argument('--plot_true', action='store_true', default=False)
-    parser.add_argument('--plot_playouts', action='store_true', default=True)
+    parser.add_argument('--plot_playouts', action='store_true', default=False)
     parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
  
     args = parser.parse_args()
@@ -633,6 +661,7 @@ if __name__ == "__main__":
 
         seed +=1
         all_results.append(r)
+    np.savez('all_results_model_%s_rollouts_%s_length.npz' %(args.model_type, args.num_playouts, args.rollout_steps), r)
     print("FINISHED")
     embed()
 
