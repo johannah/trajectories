@@ -12,3 +12,10 @@ We also learn a model of the environment using a vae and perform one-step ahead 
 
 
 ![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/playout_step_seed_930_vae.gif)
+
+We based our VQ-VAE implementation on the excellent code from [@Ritesh Kumar](https://github.com/ritheshkumar95/vq-vae-exps). 
+
+The implementation of discretized logistic mixture loss we use is from  [@Lucas Caccia](https://github.com/pclucas14/pixel-cnn-pp/blob/master/utils.py)
+
+Thanks to [@kastnerkyle](https://github.com/kastnerkyle) for discussions and advice on all things neural-networky. 
+

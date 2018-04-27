@@ -13,6 +13,7 @@ from copy import deepcopy
 import logging
 import os
 import sys
+import pickle
 
 import torch
 import torch.nn.functional as F
@@ -547,7 +548,10 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
         print("robot won reward={} after {} steps".format(reward,t))
     else:
         print("robot died reward={} after {} steps".format(reward,t))
-        embed()
+        print("robot died reward={} after {} steps".format(reward,t))
+        print("robot died reward={} after {} steps".format(reward,t))
+        print("robot died reward={} after {} steps".format(reward,t))
+        #embed()
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
     print("_____________________________________________________________________")
@@ -588,7 +592,6 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--model_type', type=str, default="None")
 
     parser.add_argument('--do_plot_error', action='store_true', default=True)
-    parser.add_argument('--plot_true', action='store_true', default=False)
     parser.add_argument('--plot_playouts', action='store_true', default=False)
     parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
  
@@ -653,16 +656,18 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    all_results = []
+    all_results = {}
     for i in range(args.num_episodes):
         r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
                       max_goal_distance=goal_dis, n_playouts=args.num_playouts,
                       max_rollout_length=args.rollout_steps, model_type=args.model_type)
 
         seed +=1
-        all_results.append(r)
-    np.savez('all_results_model_%s_rollouts_%s_length.npz' %(args.model_type, args.num_playouts, args.rollout_steps), r)
-    print("FINISHED")
+        all_results[seed] = r
+        ffile = open('all_results_model_%s_rollouts_%s_length_%s.pklc' %(args.model_type, args.num_playouts, args.rollout_steps), 'w')
+        pickle.dump(all_results,ffile)
+        ffile.close()
     embed()
+    print("FINISHED")
 
 
