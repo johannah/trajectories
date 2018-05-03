@@ -477,7 +477,7 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
 
 
 def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
-              n_playouts=300, max_rollout_length=50, model_type='vae'):
+              n_playouts=300, max_rollout_length=50, model_type='vae', prob_fn=goal_node_probs_fn):
 
     # log params
     results = {'decision_ts':[], 'dis_to_goal':[], 'actions':[],
@@ -504,7 +504,9 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
     #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=equal_node_probs_fn,
     #            n_playouts=n_playouts,rollout_length=max_rollout_length)
-    pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
+    #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
+    #            n_playouts=n_playouts,rollout_length=max_rollout_length, estimator=estimator)
+    pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=prob_fn,
                 n_playouts=n_playouts,rollout_length=max_rollout_length, estimator=estimator)
 
     t = 0
@@ -594,8 +596,12 @@ if __name__ == "__main__":
     parser.add_argument('--do_plot_error', action='store_true', default=True)
     parser.add_argument('--plot_playouts', action='store_true', default=False)
     parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
- 
+    parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='options are goal or equal')
+    #equal_node_probs_fn(
     args = parser.parse_args()
+    prior = equal_node_probs_fn
+    if args.prior_fn == 'goal':
+        prior = goal_node_probs_fn 
     use_cuda = args.cuda
     seed = args.seed
     dsize = 40
@@ -656,15 +662,15 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    all_results = {}
+    all_results = {'args':args}
     for i in range(args.num_episodes):
         r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
                       max_goal_distance=goal_dis, n_playouts=args.num_playouts,
-                      max_rollout_length=args.rollout_steps, model_type=args.model_type)
+                      max_rollout_length=args.rollout_steps, model_type=args.model_type,prob_fn=prior)
 
         seed +=1
         all_results[seed] = r
-        ffile = open('all_results_model_%s_rollouts_%s_length_%s.pklc' %(args.model_type, args.num_playouts, args.rollout_steps), 'w')
+        ffile = open('all_results_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(args.model_type, args.num_playouts, args.rollout_steps,args.prior_fn), 'w')
         pickle.dump(all_results,ffile)
         ffile.close()
     embed()
