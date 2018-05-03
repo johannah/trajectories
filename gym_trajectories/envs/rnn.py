@@ -71,6 +71,43 @@ def save_checkpoint(state, filename='model.pkl'):
     print("finishing save of {}".format(filename))
 
 
+def train_dummy_data():
+    input_size, hidden_size, output_size = 1,128,1
+    seq_length = 20
+    lr = 1e-4
+    
+    # make sine wave data
+    data_time_steps = np.linspace(2,10, seq_length+1)
+    data = np.sin(data_time_steps)
+    data.resize((seq_length+1), 1)
+    batch_size = 10
+    batch_data = np.array([data for d in range(batch_size)]).transpose(1,0,2)
+    
+    # target is input data shifted by one time step
+    # input data should be - timestep, batchsize, features!
+    x = Variable(torch.FloatTensor(batch_data[:-1]), requires_grad=False)
+    y = Variable(torch.FloatTensor(batch_data[1:]), requires_grad=False)
+    
+    rnn = RNN(hidden_size=hidden_size)
+    optim = optim.Adam(rnn.parameters(), lr=lr)
+    best_loss = 7000
+    savedir = 'saved'
+    if not os.path.exists(savedir):
+       os.makedirs(savedir)
+    
+    for e in range(4000):
+        if not e%10:
+            y_pred = train(e,do_save=True)
+        else:
+            y_pred = train(e,do_save=False)
+    plt.plot(y_pred.data.numpy()[:,0], label='ypred')
+    plt.plot(y.data.numpy()[:,0], label='y')
+    plt.legend()
+    plt.show()
+    embed()
+
+def train_vae_data():
+
 if __name__ == '__main__':
     input_size, hidden_size, output_size = 1,128,1
     seq_length = 20
