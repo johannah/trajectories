@@ -15,7 +15,7 @@ from imageio import imread, imwrite
 from PIL import Image
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
-from datasets import FroggerDataset
+from datasets import FroggerDataset, EpisodicFroggerDataset
 
 best_inds = np.load('best_inds.npz')['arr_0']
 mus = np.load('train_mu_conv_vae.npz')['arr_0']
@@ -68,6 +68,34 @@ def generate_reconstruction(base_path,data_loader,nr_logistic_mix,do_use_cuda):
                 #imwrite(img_name, inx_tilde[q,0])
 
 
+def generate_episodic_results(base_path,data_loader,nr_logistic_mix,do_use_cuda):
+    if not os.path.exists(base_path):
+        os.makedirs(base_path)
+    bs = 28
+    eplen = 169
+    start_time = time.time()
+    data_mu = np.empty((eplen,800))
+    data_sigma = np.empty((eplen,800))
+    for batch_idx, (data, img_names) in enumerate(data_loader):
+        # each batch is one episode
+        if do_use_cuda:
+            x = Variable(data, requires_grad=False).cuda()
+        else:
+            x = Variable(data, requires_grad=False)
+
+        for i in range(0,169-bs,bs):
+            x_d = vae(x[i:i+bs])
+            zmean = vae.z_mean.cpu().data.numpy()
+            zsigma = vae.z_sigma.cpu().data.numpy()
+            data_mu[i:i+bs] = zmean
+            data_sigma[i:i+bs] = zsigma
+
+        iname = os.path.join(base_path,os.path.split(img_names[0])[1].replace('.png', '_conv_vae.npz'))
+
+        np.savez(iname, mu=data_mu,sigma=data_sigma)
+        if not batch_idx%10:
+            print('saving %s'%iname)
+
 def generate_results(base_path,data_loader,nr_logistic_mix,do_use_cuda):
     if not os.path.exists(base_path):
         os.makedirs(base_path)
@@ -109,14 +137,15 @@ def generate_results(base_path,data_loader,nr_logistic_mix,do_use_cuda):
 
 if __name__ == '__main__':
     import argparse
-    default_base_datadir = '/localdata/jhansen/trajectories_frames/saved/'
-    default_model_savepath = os.path.join(default_base_datadir, 'conv_vae_model.pkl')
+    default_base_datadir = '/localdata/jhansen/trajectories_frames/dataset/'
+    default_base_savedir = '/localdata/jhansen/trajectories_frames/saved/'
+    default_model_savepath = os.path.join(default_base_savedir, 'conv_vae_model.pkl')
 
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
-    parser.add_argument('-l', '--model_loadpath', default=None)
+    parser.add_argument('-l', '--model_loadpath', default=default_model_savepath)
     parser.add_argument('-z', '--num_z', default=32, type=int)
     parser.add_argument('-e', '--num_epochs', default=350, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
@@ -146,13 +175,13 @@ if __name__ == '__main__':
         vae.decoder = vae.decoder.cuda()
     opt = torch.optim.Adam(vae.parameters(), lr=1e-4)
     epoch = 0
-    data_train_loader = DataLoader(FroggerDataset(train_data_dir,
+    data_train_loader = DataLoader(EpisodicFroggerDataset(train_data_dir,
                                    transform=transforms.ToTensor(),
                                    limit=args.num_train_limit),
-                                   batch_size=64, shuffle=True)
-    data_test_loader = DataLoader(FroggerDataset(test_data_dir,
+                                   batch_size=169, shuffle=False)
+    data_test_loader = DataLoader(EpisodicFroggerDataset(test_data_dir,
                                    transform=transforms.ToTensor()),
-                                  batch_size=32, shuffle=True)
+                                  batch_size=169, shuffle=False)
     test_data = data_test_loader
 
     if args.model_loadpath is not None:
@@ -166,15 +195,19 @@ if __name__ == '__main__':
             print('could not find checkpoint at {}'.format(args.model_loadpath))
             embed()
 
-    for batch_idx, (test_data, _) in enumerate(data_test_loader):
-        if use_cuda:
-            x_test = Variable(test_data).cuda()
-        else:
-            x_test = Variable(test_data)
+    #for batch_idx, (test_data, _) in enumerate(data_test_loader):
+    #    if use_cuda:
+    #        x_test = Variable(test_data).cuda()
+    #    else:
+    #        x_test = Variable(test_data)
 
-    generate_reconstruction(os.path.join(default_base_datadir,'train_results'), data_train_loader,nr_mix,use_cuda)
+
+    #generate_reconstruction(os.path.join(default_base_savedir,'train_results'), data_train_loader,nr_mix,use_cuda)
     #generate_results('../saved/test_results/', data_test_loader,nr_mix,use_cuda)
-#    generate_results('../saved/train_results/', data_train_loader,nr_mix,use_cuda)
+    #generate_results('../saved/train_results/', data_train_loader,nr_mix,use_cuda)
+
+    generate_episodic_results(os.path.join(args.datadir,'episodic_vae_test_results/'), data_test_loader, nr_mix, use_cuda)
+    generate_episodic_results(os.path.join(args.datadir,'episodic_vae_train_results/'), data_train_loader, nr_mix, use_cuda)
 
 
 

@@ -107,7 +107,7 @@ def get_vq_from_road(road_state):
     road_state = Variable(transforms.ToTensor()(road_state[:,:,None].astype(np.float32)))
     x_d, z_e_x, z_q_x, latents = vmodel(road_state[None])
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    vroad_state = x_tilde[0,0].data.numpy() 
+    vroad_state = x_tilde[0,0].data.numpy()
     uvroad_state = ((0.5*vroad_state+0.5)*255).astype(np.uint8)
     return uvroad_state
 
@@ -119,7 +119,7 @@ def get_vqvae_from_roads(road_states):
     road_states = Variable(transforms.ToTensor()(road_states.transpose(1,2,0).astype(np.float32)))[:,None]
     x_d, z_e_x, z_q_x, latents = vmodel(road_states)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    vroad_state = x_tilde.data.numpy() 
+    vroad_state = x_tilde.data.numpy()
     uvroad_states = ((0.5*vroad_state+0.5)*255).astype(np.uint8)[:,0]
     return uvroad_states
 
@@ -139,7 +139,7 @@ def get_vae_from_roads(iroad_states):
             input_base[b] = road_states[frame]
         x_d = vae(input_base)
         tilde_base = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        vroad = tilde_base.cpu().data.numpy() 
+        vroad = tilde_base.cpu().data.numpy()
         uvroad = ((0.5*vroad+0.5)*255).astype(np.uint8)[:,0]
         nonzero = np.count_nonzero(uvroad,axis=0)
         max_ = np.max(uvroad, axis=0)
@@ -147,10 +147,8 @@ def get_vae_from_roads(iroad_states):
         nroad_states[frame] = max_
     return nroad_states
 
-
-
 class PMCTS(object):
-    def __init__(self, env, random_state, node_probs_fn, c_puct=1.4, 
+    def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
             n_playouts=1000, rollout_length=300, estimator=get_none_from_roads):
         # use estimator for planning, if false, use env
         self.env = env
@@ -216,7 +214,7 @@ class PMCTS(object):
                 next_state, value, finished, _ = self.env.step(state, state_index, action)
                 # time step
                 state_index +=1
-                # gets true step back 
+                # gets true step back
                 next_vstate = [next_state[0], next_state[1], self.road_map_ests[state_index]]
                 # stack true state then vstate
                 frames.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
@@ -295,7 +293,7 @@ class PMCTS(object):
                     if v > min(vs):
                         varg = np.argmin(vs)
                         bad = all_frames.keys()[varg]
-                        del all_frames[bad] 
+                        del all_frames[bad]
                         all_frames[(n,v)] = fs
                         #print('adding', (n, v))
                         #print('deleting', bad)
@@ -360,19 +358,19 @@ class PMCTS(object):
         self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
         self.tree_subs_ = []
 
-def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes, 
-                         model_road_maps, rollout_length, 
+def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes,
+                         model_road_maps, rollout_length,
                          t,plot_error=False,gap=3,min_agents_alive=4):
     true_road_maps = true_env.road_maps
     true_goal_map = true_env.goal_map
     if plot_error:
-        fpath = os.path.join(base_path,model_type,'Eseed_{}'.format(seed)) 
+        fpath = os.path.join(base_path,model_type,'Eseed_{}'.format(seed))
     else:
-        fpath = os.path.join(base_path,model_type,'Pseed_{}'.format(seed)) 
+        fpath = os.path.join(base_path,model_type,'Pseed_{}'.format(seed))
 
     if not os.path.exists(fpath):
         os.makedirs(fpath)
-    fast_path = os.path.join(base_path,model_type,'Tseed_{}'.format(seed)) 
+    fast_path = os.path.join(base_path,model_type,'Tseed_{}'.format(seed))
     if not os.path.exists(fast_path):
         os.makedirs(fast_path)
     for ts in range(len(sframes)):
@@ -564,8 +562,8 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     plt.close()
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.plot_playouts:
-        plot_playout_scatters(true_env, 'trials', model_type, seed, reward, sframes, 
-                          pmcts.road_map_ests, pmcts.rollout_length, 
+        plot_playout_scatters(true_env, 'trials', model_type, seed, reward, sframes,
+                          pmcts.road_map_ests, pmcts.rollout_length,
                           t,plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4)
     return results
 
@@ -601,7 +599,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     prior = equal_node_probs_fn
     if args.prior_fn == 'goal':
-        prior = goal_node_probs_fn 
+        prior = goal_node_probs_fn
     use_cuda = args.cuda
     seed = args.seed
     dsize = 40
@@ -611,7 +609,7 @@ if __name__ == "__main__":
 
     if args.model_type == 'vae':
         if args.model_loadpath == "None":
-            args.model_loadpath = default_vae_model_savepath 
+            args.model_loadpath = default_vae_model_savepath
 
         encoder = Encoder(latent_size)
         decoder = Decoder(latent_size, probs_size)
@@ -634,7 +632,7 @@ if __name__ == "__main__":
     if args.model_type == 'vqvae':
 
         if args.model_loadpath == "None":
-            args.model_loadpath = default_vqvae_model_savepath 
+            args.model_loadpath = default_vqvae_model_savepath
         num_z = 32
         nr_logistic_mix = 10
         num_clusters = 512

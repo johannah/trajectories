@@ -59,7 +59,6 @@ def test(x,vae,vqvae_model,do_use_cuda=False,save_img_path=None):
     test_loss = loss.cpu().data.mean()
     return test_loss
 
-
 def save_checkpoint(state, is_best=False, filename='model.pkl'):
     torch.save(state, filename)
     if is_best:

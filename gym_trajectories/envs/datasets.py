@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from IPython import embed
 from glob import glob
@@ -83,6 +84,30 @@ class VqvaeDataset(Dataset):
         # normalize for embedding space
         #data = 2*((data/512.0)-0.5)
         return data,data_name
+
+class EpisodicFroggerDataset(Dataset):
+    def __init__(self, root_dir, transform=None, limit=None, search='*conv_vae.npz'):
+        # what really matters is the seed - only generated one game per seed
+        #seed_00334_episode_00029_frame_00162.png
+        self.root_dir = root_dir
+        self.transform = transform
+        search_path = os.path.join(self.root_dir, search)
+        self.indexes = sorted(glob(search_path))
+        if not len(self.indexes):
+            print("Error no files found at {}".format(search_path))
+            sys.exit()
+        if limit is not None:
+            self.indexes = self.indexes[:min(len(self.indexes), limit)]
+
+    def __len__(self):
+        return len(self.indexes)
+
+    def __getitem__(self, idx):
+        dname = self.indexes[idx]
+        d = np.load(open(dname, 'rb'))
+        mu = d['mu'].astype(np.float32)
+        sig = d['sigma'].astype(np.float32)
+        return mu,sig,dname
 
 
 
