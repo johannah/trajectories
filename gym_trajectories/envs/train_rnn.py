@@ -1,4 +1,5 @@
 # from KK
+from rnn import RNN
 from copy import deepcopy
 import time
 import os
@@ -26,25 +27,6 @@ all_inds = range(800)
 best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
 
 torch.manual_seed(139)
-
-class RNN(nn.Module):
-    def __init__(self, input_size=1, hidden_size=128):
-        super(RNN, self).__init__()
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.lstm1 = nn.LSTMCell(input_size, hidden_size)
-        self.lstm2 = nn.LSTMCell(hidden_size, hidden_size)
-        init.normal(self.lstm1.weight_ih,0.0,0.01)
-        init.normal(self.lstm1.weight_hh,0.0,0.01)
-        init.normal(self.lstm2.weight_ih,0.0,0.01)
-        init.normal(self.lstm2.weight_hh,0.0,0.01)
-        self.linear = nn.Linear(hidden_size, input_size)
-
-    def forward(self, xt, h1_tm1, c1_tm1, h2_tm1, c2_tm1):
-        h1_t, c1_t = self.lstm1(xt, (h1_tm1, c1_tm1))
-        h2_t, c2_t = self.lstm2(h1_t, (h2_tm1, c2_tm1))
-        output = self.linear(h2_t)
-        return output, h1_t, c1_t, h2_t, c2_t
 
 def train(e,dataloader,do_save=False,do_use_cuda=False):
     losses = []
@@ -90,7 +72,7 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
                 'state_dict':rnn.state_dict(),
                 'optimizer':optim.state_dict(),
                  }
-        filename = os.path.join(default_base_savedir , 'rnn_model_epoch_%06d.pkl'%e)
+        filename = os.path.join(default_base_savedir , 'rnn_model_epoch_%06d_loss%05f.pkl'%(e,np.mean(losses)))
         save_checkpoint(state, filename=filename)
         time.sleep(5)
 
@@ -155,23 +137,30 @@ if __name__ == '__main__':
     #        print('could not find checkpoint at {}'.format(args.model_loadpath))
     #        embed()
 
-    test_data_path =  os.path.join(args.datadir,'episodic_vae_test_results/')
-    train_data_path = os.path.join(args.datadir,'episodic_vae_train_results/')
-    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=True)
-    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=True)
     hidden_size = 128
     # input after only good parts of vae taken
     input_size = 50
     seq_length = 169
     lr = 1e-4
     rnn = RNN(input_size,hidden_size)
+    optim = optim.Adam(rnn.parameters(), lr=lr, weight_decay=1e-6)
     if use_cuda:
         rnn.cuda()
+    rnn_epoch = 0
+    if args.rnn_model_loadpath is not None:
+        if os.path.exists(args.rnn_model_loadpath):
+            rnn_model_dict = torch.load(args.rnn_model_loadpath)
+            rnn.load_state_dict(rnn_model_dict['state_dict'])
+            optim.load_state_dict(rnn_model_dict['optimizer'])
+            rnn_epoch = rnn_model_dict['epoch']
 
-    optim = optim.Adam(rnn.parameters(), lr=lr, weight_decay=1e-6)
-    for e in range(args.num_epochs):
-        train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
+
+    test_data_path =  os.path.join(args.datadir,'episodic_vae_test_results/')
+    train_data_path = os.path.join(args.datadir,'episodic_vae_train_results/')
+    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=True)
+    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=True)
+    #for e in range(epoch+1,epoch+args.num_epochs):
+    #    mean_loss = train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
+
+    # vae.decoder(mu)
     embed()
-
-
-

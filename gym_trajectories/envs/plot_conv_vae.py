@@ -90,6 +90,8 @@ def generate_episodic_results(base_path,data_loader,nr_logistic_mix,do_use_cuda)
             data_mu[i:i+bs] = zmean
             data_sigma[i:i+bs] = zsigma
 
+        # TODO - this image name has frames in it where it isnt applicable -
+        # should remove
         iname = os.path.join(base_path,os.path.split(img_names[0])[1].replace('.png', '_conv_vae.npz'))
 
         np.savez(iname, mu=data_mu,sigma=data_sigma)
