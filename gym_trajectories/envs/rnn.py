@@ -34,6 +34,10 @@ class RNN(nn.Module):
         self.input_size = input_size
         self.lstm1 = nn.LSTMCell(input_size, hidden_size)
         self.lstm2 = nn.LSTMCell(hidden_size, hidden_size)
+        init.normal(self.lstm1.weight_ih,0.0,0.01)
+        init.normal(self.lstm1.weight_hh,0.0,0.01)
+        init.normal(self.lstm2.weight_ih,0.0,0.01)
+        init.normal(self.lstm2.weight_hh,0.0,0.01)
         self.linear = nn.Linear(hidden_size, input_size)
 
     def forward(self, xt, h1_tm1, c1_tm1, h2_tm1, c2_tm1):
@@ -52,16 +56,16 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
         data = data_mu[:,:,best_inds].permute(1,0,2)
         if do_use_cuda:
             x = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
-            h1_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False).cuda()*0.0
-            c1_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False).cuda()*0.0
-            h2_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False).cuda()*0.0
-            c2_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False).cuda()*0.0
+            h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
+            c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
+            h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
+            c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
         else:
             x = Variable(torch.FloatTensor(data), requires_grad=False)
-            h1_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False)*0.0
-            c1_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False)*0.0
-            h2_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False)*0.0
-            c2_tm1 = Variable(torch.FloatTensor(batch_size, hidden_size), requires_grad=False)*0.0
+            h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+            c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+            h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+            c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
         outputs = []
         for i in range(len(x)):
             output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
@@ -74,8 +78,10 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
             p.grad.data.clamp_(min=-clip,max=clip)
         optim.step()
         ll = mse_loss.cpu().data.numpy()[0]
+        if np.isnan(ll):
+            embed()
         losses.append(ll)
-        if not batch_idx%1000:
+        if not batch_idx%10:
             print('epoch {} batch_idx {} loss {}'.format(e,batch_idx,ll))
     if do_save:
         print('saving epoch {} loss {}'.format(e,np.mean(losses)))
@@ -86,6 +92,7 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
                  }
         filename = os.path.join(default_base_savedir , 'rnn_model_epoch_%06d.pkl'%e)
         save_checkpoint(state, filename=filename)
+        time.sleep(5)
 
 def save_checkpoint(state, filename='model.pkl'):
     print("starting save of {}".format(filename))
@@ -161,7 +168,7 @@ if __name__ == '__main__':
     if use_cuda:
         rnn.cuda()
 
-    optim = optim.Adam(rnn.parameters(), lr=lr)
+    optim = optim.Adam(rnn.parameters(), lr=lr, weight_decay=1e-6)
     for e in range(args.num_epochs):
         train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
     embed()
