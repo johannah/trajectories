@@ -97,7 +97,7 @@ def generate_imgs(dataloader,output_filepath,true_img_path):
         data = data_mu[:,:,best_inds].permute(1,0,2)
         if use_cuda:
             mus_vae = Variable(data_mu, requires_grad=False).cuda()
-            x = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
+            seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
             out_mu = Variable(torch.FloatTensor(np.zeros_like(data_mu)), requires_grad=False).cuda()
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
             c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
@@ -105,19 +105,22 @@ def generate_imgs(dataloader,output_filepath,true_img_path):
             c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
         else:
             mus_vae = Variable(data_mu, requires_grad=False)
-            x = Variable(torch.FloatTensor(data), requires_grad=False)
+            seq = Variable(torch.FloatTensor(data), requires_grad=False)
             out_mu = Variable(torch.FloatTensor(np.zeros_like(data_mu)), requires_grad=False)
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
         outputs = []
+        y = seq[1:]
+        x = seq[:-1]
         for i in range(len(x)):
             output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
             outputs+=[output]
         pred = torch.stack(outputs, 0)
 
         # vae data shoud be batch,timestep(example),features
+        out_mu = out_mu[:,1:,:]
         out_mu[:,:,best_inds] = pred.permute(0,1,2)
         # go through each distinct episode:
         for e in range(out_mu.shape[0]):
@@ -140,7 +143,8 @@ def generate_imgs(dataloader,output_filepath,true_img_path):
             nx_tilde_vae = x_tilde_vae.cpu().data.numpy()
             inx_tilde_vae = ((0.5*nx_tilde_vae+0.5)*255).astype(np.uint8)
 
-            for frame_num in range(inx_tilde.shape[0]):
+            for frame in range(inx_tilde.shape[0]):
+                frame_num = frame+1 # pred one timestep ahead, assume 0 is given
                 true_img_name = os.path.join(true_img_path, basename.replace('_conv_vae', '.png'))
                 true_img_name = true_img_name.replace('frame_%05d'%0, 'frame_%05d'%frame_num)
                 true_img = imread(true_img_name)
@@ -148,9 +152,9 @@ def generate_imgs(dataloader,output_filepath,true_img_path):
                 f, ax = plt.subplots(1,3, figsize=(6,3))
                 ax[0].imshow(true_img, origin='lower')
                 ax[0].set_title('true frame %04d'%frame_num)
-                ax[1].imshow(inx_tilde_vae[frame_num][0], origin='lower')
+                ax[1].imshow(inx_tilde_vae[frame][0], origin='lower')
                 ax[1].set_title('vae decoder')
-                ax[2].imshow(inx_tilde[frame_num][0], origin='lower')
+                ax[2].imshow(inx_tilde[frame][0], origin='lower')
                 ax[2].set_title('rnn vae decoder')
                 f.tight_layout()
                 img_name = basepath+'_rnn_plot.png'
@@ -175,7 +179,6 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--rnn_model_loadpath', default=default_rnn_model_loadpath)
 
     parser.add_argument('-z', '--num_z', default=32, type=int)
-    parser.add_argument('-e', '--num_epochs', default=350, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
     parser.add_argument('-g', '--generate_results', action='store_true', default=False, help='generate dataset of codes')
 
@@ -209,7 +212,7 @@ if __name__ == '__main__':
     else:
         print("no VAE path provided")
     # setup rnn
-    hidden_size = 128
+    hidden_size = 512
     # input after only good parts of vae taken
     input_size = 50
     seq_length = 169
@@ -233,14 +236,19 @@ if __name__ == '__main__':
         print("no RNN path provided")
 
 
+
     test_data_path =  os.path.join(args.datadir,'episodic_vae_test_results/')
     train_data_path = os.path.join(args.datadir,'episodic_vae_train_results/')
-    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=True)
-    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=True)
+
+    #test_data_path =  os.path.join(args.datadir, 'episodic_vae_train_tiny/')
+    #train_data_path = os.path.join(args.datadir, 'episodic_vae_test_tiny/')
+
+    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=False)
+    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=False)
     test_true_data_path = os.path.join(args.datadir, 'imgs_test')
     train_true_data_path = os.path.join(args.datadir, 'imgs_train')
-    #generate_imgs(test_data_loader,os.path.join(args.datadir, 'episodic_rnn_vae_test_results'), test_true_data_path)
-    generate_imgs(train_data_loader,os.path.join(args.datadir, 'episodic_rnn_vae_train_results'), train_true_data_path)
+    #generate_imgs(test_data_loader,os.path.join(args.datadir, 'episodic_rnn_vae_test_tiny'), test_true_data_path)
+    #generate_imgs(train_data_loader,os.path.join(args.datadir, 'episodic_rnn_vae_train_tiny'), train_true_data_path)
     embed()
 
 

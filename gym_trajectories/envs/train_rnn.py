@@ -34,26 +34,31 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
         optim.zero_grad()
         batch_size = data_mu.shape[0]
         # only use relevant mus
+        # data_mu is example, timesteps, features
         # data shoud be timestep,batchsize,features
-        data = data_mu[:,:,best_inds].permute(1,0,2)
+        data_all = data_mu.permute(1,0,2)
+        data = data_all[:,:,best_inds]
         if do_use_cuda:
-            x = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
+            seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
             c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
             h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
             c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
         else:
-            x = Variable(torch.FloatTensor(data), requires_grad=False)
+            seq = Variable(torch.FloatTensor(data), requires_grad=False)
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+
+        y = seq[1:]
+        x = seq[:-1]
         outputs = []
         for i in range(len(x)):
             output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
             outputs+=[output]
         pred = torch.stack(outputs, 0)
-        mse_loss = ((pred-x)**2).mean()
+        mse_loss = ((pred-y)**2).mean()
         mse_loss.backward()
         clip = 10
         for p in rnn.parameters():
@@ -63,7 +68,7 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
         if np.isnan(ll):
             embed()
         losses.append(ll)
-        if not batch_idx%10:
+        if not batch_idx%100:
             print('epoch {} batch_idx {} loss {}'.format(e,batch_idx,ll))
     if do_save:
         print('saving epoch {} loss {}'.format(e,np.mean(losses)))
@@ -72,7 +77,7 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
                 'state_dict':rnn.state_dict(),
                 'optimizer':optim.state_dict(),
                  }
-        filename = os.path.join(default_base_savedir , 'rnn_model_epoch_%06d_loss%05f.pkl'%(e,np.mean(losses)))
+        filename = os.path.join(default_base_savedir , '%s_rnn_model_epoch_%06d_loss%05f.pkl'%(args.savename,e,np.mean(losses)))
         save_checkpoint(state, filename=filename)
         time.sleep(5)
 
@@ -88,59 +93,21 @@ if __name__ == '__main__':
     import argparse
     default_base_datadir = '/localdata/jhansen/trajectories_frames/dataset/'
     default_base_savedir = '/localdata/jhansen/trajectories_frames/saved/'
-    default_model_savepath = os.path.join(default_base_savedir, 'conv_vae_model.pkl')
-    default_rnn_model_savepath = os.path.join(default_base_savedir, 'rnn_vae.pkl')
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
-    parser.add_argument('-s', '--model_savepath', default=default_model_savepath)
-    parser.add_argument('-l', '--model_loadpath', default=default_model_savepath)
-
-    parser.add_argument('-rs', '--rnn_model_savepath', default=default_rnn_model_savepath)
-    parser.add_argument('-rl', '--rnn_model_loadpath', default=default_rnn_model_savepath)
-
-    parser.add_argument('-z', '--num_z', default=32, type=int)
+    parser.add_argument('-l', '--rnn_model_loadpath', default=None)
+    parser.add_argument('-s', '--savename', default='base')
     parser.add_argument('-e', '--num_epochs', default=350, type=int)
+    parser.add_argument('-se', '--save_every', default=100, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
-    parser.add_argument('-g', '--generate_results', action='store_true', default=False, help='generate dataset of codes')
+
 
     args = parser.parse_args()
     use_cuda = args.cuda
-
-    #dsize = 40
-    #nr_mix = 10
-    ## mean and scale for each components and weighting bt components (10+2*10)
-    #probs_size = (2*nr_mix)+nr_mix
-    #latent_size = 32
-
-    #encoder = Encoder(latent_size)
-    #decoder = Decoder(latent_size, probs_size)
-    #vae = VAE(encoder, decoder, use_cuda)
-    ## square error is not the correct loss - for ordered input,
-    ## should use softmax for unordered input ( like mine )
-
-    #if use_cuda:
-    #    print("using gpu")
-    #    vae = vae.cuda()
-    #    vae.encoder = vae.encoder.cuda()
-    #    vae.decoder = vae.decoder.cuda()
-    #opt = torch.optim.Adam(vae.parameters(), lr=1e-4)
-    #epoch = 0
-    #if args.model_loadpath is not None:
-    #    if os.path.exists(args.model_loadpath):
-    #        model_dict = torch.load(args.model_loadpath)
-    #        vae.load_state_dict(model_dict['state_dict'])
-    #        opt.load_state_dict(model_dict['optimizer'])
-    #        epoch =  model_dict['epoch']
-    #        print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
-    #    else:
-    #        print('could not find checkpoint at {}'.format(args.model_loadpath))
-    #        embed()
-
-    hidden_size = 128
+    hidden_size = 512
     # input after only good parts of vae taken
     input_size = 50
-    seq_length = 169
     lr = 1e-4
     rnn = RNN(input_size,hidden_size)
     optim = optim.Adam(rnn.parameters(), lr=lr, weight_decay=1e-6)
@@ -148,19 +115,33 @@ if __name__ == '__main__':
         rnn.cuda()
     rnn_epoch = 0
     if args.rnn_model_loadpath is not None:
-        if os.path.exists(args.rnn_model_loadpath):
+        if  os.path.exists(args.rnn_model_loadpath):
             rnn_model_dict = torch.load(args.rnn_model_loadpath)
             rnn.load_state_dict(rnn_model_dict['state_dict'])
             optim.load_state_dict(rnn_model_dict['optimizer'])
             rnn_epoch = rnn_model_dict['epoch']
+            print("loaded rnn from %s at epoch %s" %(args.rnn_model_loadpath, rnn_epoch))
+        else:
+            print("could not find model at %s"%args.rnn_model_loadpath)
+            sys.exit()
 
 
-    test_data_path =  os.path.join(args.datadir,'episodic_vae_test_results/')
-    train_data_path = os.path.join(args.datadir,'episodic_vae_train_results/')
-    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=True)
-    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=True)
-    #for e in range(epoch+1,epoch+args.num_epochs):
-    #    mean_loss = train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
+    test_data_name = 'episodic_vae_test_results/'
+    #test_data_name =  'episodic_vae_test_dummy/'
+    #test_data_name =  'episodic_vae_test_tiny/'
+    train_data_name = test_data_name.replace('test', 'train')
 
-    # vae.decoder(mu)
+    test_data_path =  os.path.join(args.datadir,test_data_name)
+    train_data_path = os.path.join(args.datadir,train_data_name)
+
+    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=False)
+    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=False)
+    for e in range(rnn_epoch+1,rnn_epoch+args.num_epochs):
+        if not e%args.save_every:
+            mean_loss = train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
+        else:
+            mean_loss = train(e,train_data_loader,do_save=False,do_use_cuda=use_cuda)
+
+    e+=1
+    mean_loss = train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
     embed()

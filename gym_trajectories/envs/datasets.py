@@ -13,12 +13,14 @@ class FroggerDataset(Dataset):
         search_path = os.path.join(self.root_dir, 'seed_*.png')
         ss = sorted(glob(search_path))
         self.indexes = [s for s in ss if 'gen' not in s]
+        print("found %s files in %s" %(len(self.indexes), search_path))
 
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
             sys.exit()
-        if limit is not None:
+        if limit > 0:
             self.indexes = self.indexes[:min(len(self.indexes), limit)]
+            print('limited to first %s examples' %len(self.indexes))
 
     def __len__(self):
         return len(self.indexes)
@@ -39,12 +41,14 @@ class FlattenedFroggerDataset(Dataset):
         search_path = os.path.join(self.root_dir, 'seed_*.png')
         ss = sorted(glob(search_path))
         self.indexes = [s for s in ss if 'gen' not in s]
+        print("found %s files in %s" %(len(self.indexes), search_path))
 
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
             raise
-        if limit is not None:
+        if limit > 0:
             self.indexes = self.indexes[:min(len(self.indexes), limit)]
+            print('limited to first %s examples' %len(self.indexes))
 
     def __len__(self):
         return len(self.indexes)
@@ -67,11 +71,13 @@ class VqvaeDataset(Dataset):
         self.transform = transform
         search_path = os.path.join(self.root_dir, '*z_q_x.npy')
         self.indexes = sorted(glob(search_path))
+        print("found %s files in %s" %(len(self.indexes), search_path))
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
             raise
-        if limit is not None:
+        if limit > 0:
             self.indexes = self.indexes[:min(len(self.indexes), limit)]
+            print('limited to first %s examples' %len(self.indexes))
 
     def __len__(self):
         return len(self.indexes)
@@ -86,18 +92,20 @@ class VqvaeDataset(Dataset):
         return data,data_name
 
 class EpisodicFroggerDataset(Dataset):
-    def __init__(self, root_dir, transform=None, limit=None, search='*conv_vae.npz'):
+    def __init__(self, root_dir, transform=None, limit=-1, search='*conv_vae.npz'):
         # what really matters is the seed - only generated one game per seed
         #seed_00334_episode_00029_frame_00162.png
         self.root_dir = root_dir
         self.transform = transform
         search_path = os.path.join(self.root_dir, search)
         self.indexes = sorted(glob(search_path))
+        print("found %s files in %s" %(len(self.indexes), search_path))
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
             sys.exit()
-        if limit is not None:
+        if limit > 0:
             self.indexes = self.indexes[:min(len(self.indexes), limit)]
+            print('limited to first %s examples' %len(self.indexes))
 
     def __len__(self):
         return len(self.indexes)
