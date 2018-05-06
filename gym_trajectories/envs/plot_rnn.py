@@ -236,19 +236,20 @@ if __name__ == '__main__':
         print("no RNN path provided")
 
 
-
-    test_data_path =  os.path.join(args.datadir,'episodic_vae_test_results/')
-    train_data_path = os.path.join(args.datadir,'episodic_vae_train_results/')
-
-    #test_data_path =  os.path.join(args.datadir, 'episodic_vae_train_tiny/')
-    #train_data_path = os.path.join(args.datadir, 'episodic_vae_test_tiny/')
+    test_dir = 'episodic_vae_test_results'
+    #test_dir = 'episodic_vae_train_tiny/
+    train_dir = test_dir.replace('test', 'train')
+    gen_test_dir = test_dir.replace('episodic_', 'episodic_rnn_')
+    gen_train_dir = train_dir.replace('episodic_', 'episodic_rnn_')
+    test_data_path =  os.path.join(args.datadir,test_dir)
+    train_data_path = os.path.join(args.datadir,train_dir)
 
     test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=False)
     train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=False)
     test_true_data_path = os.path.join(args.datadir, 'imgs_test')
     train_true_data_path = os.path.join(args.datadir, 'imgs_train')
-    #generate_imgs(test_data_loader,os.path.join(args.datadir, 'episodic_rnn_vae_test_tiny'), test_true_data_path)
-    #generate_imgs(train_data_loader,os.path.join(args.datadir, 'episodic_rnn_vae_train_tiny'), train_true_data_path)
+    generate_imgs(test_data_loader,os.path.join(args.datadir,  gen_test_dir), test_true_data_path)
+    generate_imgs(train_data_loader,os.path.join(args.datadir, gen_train_dir), train_true_data_path)
     embed()
 
 
