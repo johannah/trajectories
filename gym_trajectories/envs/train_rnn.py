@@ -22,10 +22,15 @@ from vq_vae_small import AutoEncoder, to_scalar
 from conv_vae import Encoder, Decoder, VAE
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
-worst_inds = np.load('worst_inds.npz')['arr_0']
-all_inds = range(800)
-best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
+#worst_inds = np.load('worst_inds.npz')['arr_0']
+#all_inds = range(800)
+#best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
 
+#pcad = np.load('pca_components_vae.npz')
+#V = pcad['V']
+#vae_mu_mean = pcad['Xmean']
+#vae_mu_std = pcad['Xstd']
+#vae_Xpca_std = pcad['Xpca_std']
 torch.manual_seed(139)
 
 def train(e,dataloader,do_save=False,do_use_cuda=False):
@@ -36,8 +41,7 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
         # only use relevant mus
         # data_mu is example, timesteps, features
         # data shoud be timestep,batchsize,features
-        data_all = data_mu.permute(1,0,2)
-        data = data_all[:,:,best_inds]
+        data = data_mu.permute(1,0,2)
         if do_use_cuda:
             seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
@@ -89,6 +93,33 @@ def save_checkpoint(state, filename='model.pkl'):
     print("finishing save of {}".format(filename))
 
 
+def get_pca(dataloader):
+    from scipy import linalg
+    all_data = np.empty((0,50))
+    for batch_idx, (data_mu, data_sigma, name) in enumerate(dataloader):
+        rs = data_mu.numpy().reshape(data_mu.shape[0]*169,800)[:,best_inds]
+        all_data = np.vstack((all_data, rs))
+
+    X = all_data
+    Xmean = np.mean(X, axis=0)
+    Xstd = np.std(X, axis=0)
+    X -= Xmean
+    U, S, V = linalg.svd(X, full_matrices=False)
+    Xpca = np.dot(X, V.T)
+    Xpca_std = np.std(Xpca, axis=0)
+    np.savez('pca_components_vae.npz', V=V, Xmean=Xmean, Xstd=Xstd, Xpca_std=Xpca_std)
+
+    # to transform
+    # np.dot(X, V.T)
+    # to remove the transform
+    # np.dot(X, V)
+    # add mean back in
+
+def pca_transform(data):
+    return np.dot(data-vae_mu_mean, V.T)
+def pca_untransform(data):
+    return np.dot(data, V)+vae_mu_mean
+
 if __name__ == '__main__':
     import argparse
     default_base_datadir = '/localdata/jhansen/trajectories_frames/dataset/'
@@ -105,7 +136,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     use_cuda = args.cuda
-    hidden_size = 512
+    hidden_size = 1024
     # input after only good parts of vae taken
     input_size = 50
     lr = 1e-4
@@ -144,4 +175,5 @@ if __name__ == '__main__':
 
     e+=1
     mean_loss = train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
+    #get_pca(train_data_loader)
     embed()

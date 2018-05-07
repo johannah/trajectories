@@ -6,6 +6,15 @@ from torch.utils.data import Dataset, DataLoader
 import os, sys
 from imageio import imread
 
+pcad = np.load('pca_components_vae.npz')
+V = pcad['V']
+vae_mu_mean = pcad['Xmean']
+Xpca_std = pcad['Xpca_std']
+
+worst_inds = np.load('worst_inds.npz')['arr_0']
+all_inds = range(800)
+best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
+
 class FroggerDataset(Dataset):
     def __init__(self, root_dir, transform=None, limit=None):
         self.root_dir = root_dir
@@ -113,9 +122,10 @@ class EpisodicFroggerDataset(Dataset):
     def __getitem__(self, idx):
         dname = self.indexes[idx]
         d = np.load(open(dname, 'rb'))
-        mu = d['mu'].astype(np.float32)
-        sig = d['sigma'].astype(np.float32)
-        return mu,sig,dname
+        mu = d['mu'].astype(np.float32)[:,best_inds]
+        sig = d['sigma'].astype(np.float32)[:,best_inds]
+        mu_pca = (np.dot((mu-vae_mu_mean), V)/Xpca_std).astype(np.float32)
+        return mu_pca,sig,dname
 
 
 
