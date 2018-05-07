@@ -125,7 +125,7 @@ class EpisodicFroggerDataset(Dataset):
         d = np.load(open(dname, 'rb'))
         mu = d['mu'].astype(np.float32)[:,best_inds]
         sig = d['sigma'].astype(np.float32)[:,best_inds]
-        if transform == 'pca':
+        if self.transform == 'pca':
             mu_pca = (np.dot((mu-vae_mu_mean), V)/Xpca_std).astype(np.float32)
         else:
             mu_pca = (np.dot((mu-vae_mu_mean), V)/vae_mu_std).astype(np.float32)

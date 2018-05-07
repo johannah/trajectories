@@ -126,6 +126,7 @@ if __name__ == '__main__':
     default_base_savedir = '/localdata/jhansen/trajectories_frames/saved/'
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
+    parser.add_argument('-t', '--raw_transform', default='None')
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-l', '--rnn_model_loadpath', default=None)
     parser.add_argument('-s', '--savename', default='base')
@@ -165,8 +166,8 @@ if __name__ == '__main__':
     test_data_path =  os.path.join(args.datadir,test_data_name)
     train_data_path = os.path.join(args.datadir,train_data_name)
 
-    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=False)
-    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=False)
+    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=False)
+    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, transform=args.transform, limit=args.num_train_limit), batch_size=32, shuffle=False)
     for e in range(rnn_epoch+1,rnn_epoch+args.num_epochs):
         if not e%args.save_every:
             mean_loss = train(e,train_data_loader,do_save=True,do_use_cuda=use_cuda)
