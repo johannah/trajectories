@@ -9,6 +9,7 @@ from imageio import imread
 pcad = np.load('pca_components_vae.npz')
 V = pcad['V']
 vae_mu_mean = pcad['Xmean']
+vae_mu_std = pcad['Xstd']
 Xpca_std = pcad['Xpca_std']
 
 worst_inds = np.load('worst_inds.npz')['arr_0']
@@ -124,7 +125,10 @@ class EpisodicFroggerDataset(Dataset):
         d = np.load(open(dname, 'rb'))
         mu = d['mu'].astype(np.float32)[:,best_inds]
         sig = d['sigma'].astype(np.float32)[:,best_inds]
-        mu_pca = (np.dot((mu-vae_mu_mean), V)/Xpca_std).astype(np.float32)
+        if transform == 'pca':
+            mu_pca = (np.dot((mu-vae_mu_mean), V)/Xpca_std).astype(np.float32)
+        else:
+            mu_pca = (np.dot((mu-vae_mu_mean), V)/vae_mu_std).astype(np.float32)
         return mu_pca,sig,dname
 
 
