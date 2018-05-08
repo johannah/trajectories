@@ -36,7 +36,6 @@ torch.manual_seed(139)
 def train(e,dataloader,do_save=False,do_use_cuda=False):
     losses = []
     for batch_idx, (data_mu_scaled, _, data_sigma, name) in enumerate(dataloader):
-        optim.zero_grad()
         batch_size = data_mu_scaled.shape[0]
         # only use relevant mus
         # data_mu_scaled is example, timesteps, features
@@ -58,20 +57,33 @@ def train(e,dataloader,do_save=False,do_use_cuda=False):
         y = seq[1:]
         x = seq[:-1]
         outputs = []
+        window_size = 20
+        seen = 0
+        clip = 10
         for i in range(len(x)):
             output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
             outputs+=[output]
+            seen +=1
+
+            if ((not i%window_size) and (seen>1) or (i==(len(x)-1))):
+                optim.zero_grad()
+                local_pred = torch.stack(outputs[i-(seen-1):i], 0)
+                mse_loss = ((local_pred-y[i-(seen-1):i])**2).mean()
+                seen = 0
+                mse_loss.backward()
+                for p in rnn.parameters():
+                    p.grad.data.clamp_(min=-clip,max=clip)
+                optim.step()
+                # detach hiddens and output
+                h1_tm1 = h1_tm1.detach()
+                c1_tm1 = c1_tm1.detach()
+                h2_tm1 = h2_tm1.detach()
+                c2_tm1 = c2_tm1.detach()
+
+                ll = mse_loss.cpu().data.numpy()[0]
+                losses.append(ll)
+
         pred = torch.stack(outputs, 0)
-        mse_loss = ((pred-y)**2).mean()
-        mse_loss.backward()
-        clip = 10
-        for p in rnn.parameters():
-            p.grad.data.clamp_(min=-clip,max=clip)
-        optim.step()
-        ll = mse_loss.cpu().data.numpy()[0]
-        if np.isnan(ll):
-            embed()
-        losses.append(ll)
         if not batch_idx%100:
             print('epoch {} batch_idx {} loss {}'.format(e,batch_idx,ll))
     if do_save:

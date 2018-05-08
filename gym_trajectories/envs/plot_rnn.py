@@ -86,8 +86,8 @@ def generate_imgs(dataloader,output_filepath,true_img_path):
             out_mu_unscaled = pred_p*Xpca_std[None,None]
             out_mu_unscaled = np.dot(out_mu_unscaled, V)+vae_mu_mean[None,None]
 
-            vae_mu_std = data_mu_scaled*Xpca_std[None,None]
-            vae_mu_unscaled = np.dot(vae_mu_std, V)+vae_mu_mean[None,None]
+            vae_mu = data_mu_scaled*Xpca_std[None,None]
+            vae_mu_unscaled = np.dot(vae_mu, V)+vae_mu_mean[None,None]
 
         elif args.transform == 'std':
             out_mu_unscaled = (pred_p*vae_mu_std)+vae_mu_mean[None,None]
