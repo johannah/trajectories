@@ -158,7 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--transform', default='None')
     parser.add_argument('-r', '--rnn_model_loadpath', default=default_rnn_model_loadpath)
 
-    parser.add_argument('-z', '--num_z', default=32, type=int)
+    parser.add_argument('-hs', '--hidden_size', default=512, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
     parser.add_argument('-g', '--generate_results', action='store_true', default=False, help='generate dataset of codes')
 
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     else:
         print("no VAE path provided")
     # setup rnn
-    hidden_size = 512
+    hidden_size = args.hidden_size
     # input after only good parts of vae taken
     input_size = 50
     seq_length = 168
