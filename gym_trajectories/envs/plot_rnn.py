@@ -31,97 +31,75 @@ best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
 
 torch.manual_seed(139)
 
-#def train(e,dataloader,do_save=False,do_use_cuda=False):
-#    losses = []
-#    for batch_idx, (data_mu, data_sigma, name) in enumerate(dataloader):
-#        optim.zero_grad()
-#        batch_size = data_mu.shape[0]
-#        # only use relevant mus
-#        # data shoud be timestep,batchsize,features
-#        data = data_mu[:,:,best_inds].permute(1,0,2)
-#        if do_use_cuda:
-#            x = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
-#            h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-#            c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-#            h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-#            c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-#        else:
-#            x = Variable(torch.FloatTensor(data), requires_grad=False)
-#            h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-#            c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-#            h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-#            c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-#        outputs = []
-#        for i in range(len(x)):
-#            output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
-#            outputs+=[output]
-#        pred = torch.stack(outputs, 0)
-#        mse_loss = ((pred-x)**2).mean()
-#        mse_loss.backward()
-#        clip = 10
-#        for p in rnn.parameters():
-#            p.grad.data.clamp_(min=-clip,max=clip)
-#        optim.step()
-#        ll = mse_loss.cpu().data.numpy()[0]
-#        if np.isnan(ll):
-#            embed()
-#        losses.append(ll)
-#        if not batch_idx%10:
-#            print('epoch {} batch_idx {} loss {}'.format(e,batch_idx,ll))
-#    if do_save:
-#        print('saving epoch {} loss {}'.format(e,np.mean(losses)))
-#        state = {'epoch':e,
-#                'loss':np.mean(losses),
-#                'state_dict':rnn.state_dict(),
-#                'optimizer':optim.state_dict(),
-#                 }
-#        filename = os.path.join(default_base_savedir , 'rnn_model_epoch_%06d_loss%05f.pkl'%(e,np.mean(losses)))
-#        save_checkpoint(state, filename=filename)
-#        time.sleep(5)
-
-#def save_checkpoint(state, filename='model.pkl'):
-#    print("starting save of {}".format(filename))
-#    f = open(filename, 'w')
-#    torch.save(state, f)
-#    f.close()
-#    print("finishing save of {}".format(filename))
-
+pcad = np.load('pca_components_vae.npz')
+V = pcad['V']
+vae_mu_mean = pcad['Xmean']
+vae_mu_std = pcad['Xstd']
+Xpca_std = pcad['Xpca_std']
 
 def generate_imgs(dataloader,output_filepath,true_img_path):
     if not os.path.exists(output_filepath):
         os.makedirs(output_filepath)
-    for batch_idx, (data_mu, data_sigma, name) in enumerate(dataloader):
-        batch_size = data_mu.shape[0]
+    for batch_idx, (data_mu_scaled, data_mu_orig, data_sigma, name) in enumerate(dataloader):
+        batch_size = data_mu_scaled.shape[0]
+        n_timesteps  = data_mu_scaled.shape[1]-1
         # only use relevant mus
         # rnn input data shoud be timestep,batchsize,features
-        data = data_mu[:,:,best_inds].permute(1,0,2)
+        data = data_mu_scaled.permute(1,0,2)
+        seq = Variable(torch.FloatTensor(data), requires_grad=False)
+        out_mu = Variable(torch.FloatTensor(np.zeros((batch_size,  n_timesteps, 800))), requires_grad=False)
+        mus_vae = Variable(torch.FloatTensor(np.zeros((batch_size, n_timesteps, 800))), requires_grad=False)
+        h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+        c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+        h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+        c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
         if use_cuda:
-            mus_vae = Variable(data_mu, requires_grad=False).cuda()
-            seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
-            out_mu = Variable(torch.FloatTensor(np.zeros_like(data_mu)), requires_grad=False).cuda()
-            h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-            c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-            h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-            c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
-        else:
-            mus_vae = Variable(data_mu, requires_grad=False)
-            seq = Variable(torch.FloatTensor(data), requires_grad=False)
-            out_mu = Variable(torch.FloatTensor(np.zeros_like(data_mu)), requires_grad=False)
-            h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-            c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-            h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-            c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
+            mus_vae = mus_vae.cuda()
+            seq = seq.cuda()
+            out_mu = out_mu.cuda()
+            h1_tm1 = h1_tm1.cuda()
+            c1_tm1 = c1_tm1.cuda()
+            h2_tm1 = h2_tm1.cuda()
+            c2_tm1 = c2_tm1.cuda()
         outputs = []
+        # get time offsets correct
         y = seq[1:]
         x = seq[:-1]
+        data_mu_scaled = data_mu_scaled[:,1:,:]
+        data_mu_orig = data_mu_orig[:,1:,:]
         for i in range(len(x)):
-            output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
+            # number of frames to start with
+            if i < 4:
+                output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
+            else:
+                output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(output, h1_tm1, c1_tm1, h2_tm1, c2_tm1)
             outputs+=[output]
         pred = torch.stack(outputs, 0)
 
         # vae data shoud be batch,timestep(example),features
-        out_mu = out_mu[:,1:,:]
-        out_mu[:,:,best_inds] = pred.permute(0,1,2)
+        pred_p = pred.permute(1,0,2).data.numpy()
+        data_mu_scaled = data_mu_scaled.numpy()
+        if args.transform == 'pca':
+            # unnormalize data
+            # how it was scaled -
+            #mu_scaled = (np.dot((mu-vae_mu_mean, V.T)/Xpca_std).astype(np.float32)
+            out_mu_unscaled = pred_p*Xpca_std[None,None]
+            out_mu_unscaled = np.dot(out_mu_unscaled, V)+vae_mu_mean[None,None]
+
+            vae_mu_std = data_mu_scaled*Xpca_std[None,None]
+            vae_mu_unscaled = np.dot(vae_mu_std, V)+vae_mu_mean[None,None]
+
+        elif args.transform == 'std':
+            out_mu_unscaled = (pred_p*vae_mu_std)+vae_mu_mean[None,None]
+            # good
+            vae_mu_unscaled = (data_mu_scaled*vae_mu_std)+vae_mu_mean[None,None]
+        else:
+            # NO SCALING ON INPUT (NOT LIKELY)
+            out_mu_unscaled = pred_p
+            vae_mu_unscaled = data_mu_scaled
+
+        out_mu[:,:,best_inds] = Variable(torch.FloatTensor(out_mu_unscaled))
+        mus_vae[:,:,best_inds] = Variable(torch.FloatTensor(vae_mu_unscaled))
         # go through each distinct episode:
         for e in range(out_mu.shape[0]):
             basename = os.path.split(name[e])[1].replace('.npz', '')
@@ -132,6 +110,7 @@ def generate_imgs(dataloader,output_filepath,true_img_path):
             # now the size going through the decoder is 169x32x5x5
             ep_mus = out_mu[e]
             x_d = vae.decoder(ep_mus.contiguous().view(ep_mus.shape[0], 32, 5, 5))
+
             x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
             nx_tilde = x_tilde.cpu().data.numpy()
             inx_tilde = ((0.5*nx_tilde+0.5)*255).astype(np.uint8)
@@ -176,6 +155,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-v', '--vae_model_loadpath', default=default_vae_model_loadpath)
 
+    parser.add_argument('-t', '--transform', default='None')
     parser.add_argument('-r', '--rnn_model_loadpath', default=default_rnn_model_loadpath)
 
     parser.add_argument('-z', '--num_z', default=32, type=int)
@@ -215,7 +195,7 @@ if __name__ == '__main__':
     hidden_size = 512
     # input after only good parts of vae taken
     input_size = 50
-    seq_length = 169
+    seq_length = 168
     lr = 1e-4
     rnn = RNN(input_size,hidden_size)
     optim = optim.Adam(rnn.parameters(), lr=lr, weight_decay=1e-6)
@@ -236,20 +216,20 @@ if __name__ == '__main__':
         print("no RNN path provided")
 
 
-    test_dir = 'episodic_vae_test_results'
-    #test_dir = 'episodic_vae_train_tiny/
+    #test_dir = 'episodic_vae_test_results'
+    test_dir = 'episodic_vae_test_tiny/'
     train_dir = test_dir.replace('test', 'train')
     gen_test_dir = test_dir.replace('episodic_', 'episodic_rnn_')
     gen_train_dir = train_dir.replace('episodic_', 'episodic_rnn_')
     test_data_path =  os.path.join(args.datadir,test_dir)
     train_data_path = os.path.join(args.datadir,train_dir)
 
-    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path), batch_size=32, shuffle=False)
-    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit), batch_size=32, shuffle=False)
+    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=False)
+    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, limit=args.num_train_limit, transform=args.transform), batch_size=32, shuffle=False)
     test_true_data_path = os.path.join(args.datadir, 'imgs_test')
     train_true_data_path = os.path.join(args.datadir, 'imgs_train')
     generate_imgs(test_data_loader,os.path.join(args.datadir,  gen_test_dir), test_true_data_path)
-    generate_imgs(train_data_loader,os.path.join(args.datadir, gen_train_dir), train_true_data_path)
+    #generate_imgs(train_data_loader,os.path.join(args.datadir, gen_train_dir), train_true_data_path)
     embed()
 
 

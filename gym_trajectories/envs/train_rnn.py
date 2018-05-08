@@ -35,13 +35,13 @@ torch.manual_seed(139)
 
 def train(e,dataloader,do_save=False,do_use_cuda=False):
     losses = []
-    for batch_idx, (data_mu, data_sigma, name) in enumerate(dataloader):
+    for batch_idx, (data_mu_scaled, _, data_sigma, name) in enumerate(dataloader):
         optim.zero_grad()
-        batch_size = data_mu.shape[0]
+        batch_size = data_mu_scaled.shape[0]
         # only use relevant mus
-        # data_mu is example, timesteps, features
+        # data_mu_scaled is example, timesteps, features
         # data shoud be timestep,batchsize,features
-        data = data_mu.permute(1,0,2)
+        data = data_mu_scaled.permute(1,0,2)
         if do_use_cuda:
             seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
@@ -110,13 +110,14 @@ def get_pca(dataloader):
     np.savez('pca_components_vae.npz', V=V, Xmean=Xmean, Xstd=Xstd, Xpca_std=Xpca_std)
 
     # to transform
-    # np.dot(X, V.T)
+    # X_transformed = np.dot(X-mean, V.T)/pca_std
     # to remove the transform
-    # np.dot(X, V)
+    # np.dot(X_transformed*pca_td, V) + mean
     # add mean back in
 
 def pca_transform(data):
-    return np.dot(data-vae_mu_mean, V.T)
+    return np.dot(data, V.T)-vae_mu_mean
+
 def pca_untransform(data):
     return np.dot(data, V)+vae_mu_mean
 
@@ -126,7 +127,7 @@ if __name__ == '__main__':
     default_base_savedir = '/localdata/jhansen/trajectories_frames/saved/'
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
-    parser.add_argument('-t', '--raw_transform', default='None')
+    parser.add_argument('-t', '--transform', default='pca')
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-l', '--rnn_model_loadpath', default=None)
     parser.add_argument('-s', '--savename', default='base')
@@ -137,7 +138,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     use_cuda = args.cuda
-    hidden_size = 1024
+    hidden_size = 512
     # input after only good parts of vae taken
     input_size = 50
     lr = 1e-4
@@ -158,9 +159,9 @@ if __name__ == '__main__':
             sys.exit()
 
 
-    test_data_name = 'episodic_vae_test_results/'
+    #test_data_name = 'episodic_vae_test_results/'
     #test_data_name =  'episodic_vae_test_dummy/'
-    #test_data_name =  'episodic_vae_test_tiny/'
+    test_data_name =  'episodic_vae_test_tiny/'
     train_data_name = test_data_name.replace('test', 'train')
 
     test_data_path =  os.path.join(args.datadir,test_data_name)

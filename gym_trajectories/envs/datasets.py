@@ -109,6 +109,7 @@ class EpisodicFroggerDataset(Dataset):
         self.transform = transform
         search_path = os.path.join(self.root_dir, search)
         self.indexes = sorted(glob(search_path))
+        print("will use transform:%s"%transform)
         print("found %s files in %s" %(len(self.indexes), search_path))
         if not len(self.indexes):
             print("Error no files found at {}".format(search_path))
@@ -126,10 +127,16 @@ class EpisodicFroggerDataset(Dataset):
         mu = d['mu'].astype(np.float32)[:,best_inds]
         sig = d['sigma'].astype(np.float32)[:,best_inds]
         if self.transform == 'pca':
-            mu_pca = (np.dot((mu-vae_mu_mean), V)/Xpca_std).astype(np.float32)
+            if not idx:
+                print("tranforming dataset using pca")
+            mu_scaled = mu-vae_mu_mean
+            mu_scaled = (np.dot(mu_scaled, V.T)/Xpca_std).astype(np.float32)
+        elif self.transform == 'std':
+            mu_scaled= ((mu-vae_mu_mean)/vae_mu_std).astype(np.float32)
         else:
-            mu_pca = (np.dot((mu-vae_mu_mean), V)/vae_mu_std).astype(np.float32)
-        return mu_pca,sig,dname
+            mu_scaled = mu
+
+        return mu_scaled,mu,sig,dname
 
 
 
