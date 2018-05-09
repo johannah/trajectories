@@ -217,7 +217,8 @@ if __name__ == '__main__':
 
 
     #test_dir = 'episodic_vae_test_results'
-    test_dir = 'episodic_vae_test_tiny/'
+    #test_dir = 'episodic_vae_test_tiny/'
+    test_dir = 'episodic_vae_test_small/'
     train_dir = test_dir.replace('test', 'train')
     gen_test_dir = test_dir.replace('episodic_', 'episodic_rnn_')
     gen_train_dir = train_dir.replace('episodic_', 'episodic_rnn_')

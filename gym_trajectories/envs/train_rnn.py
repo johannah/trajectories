@@ -35,7 +35,7 @@ from utils import sample_from_discretized_mix_logistic
 torch.manual_seed(139)
 
 
-def test(e,dataloader,do_use_cuda=False):
+def test(e,dataloader,window_size,do_use_cuda=False):
     losses = []
     for batch_idx, (data_mu_scaled, _, data_sigma, name) in enumerate(dataloader):
         batch_losses = []
@@ -60,7 +60,6 @@ def test(e,dataloader,do_use_cuda=False):
         y = seq[1:]
         x = seq[:-1]
         outputs = []
-        window_size = 20
         seen = 0
         for i in range(len(x)):
             output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
@@ -78,7 +77,7 @@ def test(e,dataloader,do_use_cuda=False):
 
 
 
-def train(e,dataloader,do_use_cuda=False):
+def train(e,dataloader,window_size,do_use_cuda=False):
     losses = []
     cnt = 0
     for batch_idx, (data_mu_scaled, _, data_sigma, name) in enumerate(dataloader):
@@ -104,7 +103,6 @@ def train(e,dataloader,do_use_cuda=False):
         y = seq[1:]
         x = seq[:-1]
         outputs = []
-        window_size = 20
         seen = 0
         clip = 10
         cnt +=batch_size
@@ -184,17 +182,28 @@ if __name__ == '__main__':
     parser.add_argument('-hs', '--hidden_size', default=512, type=int)
     parser.add_argument('-se', '--save_every', default=10, type=int)
     parser.add_argument('-p', '--plot_port', default=8097, type=int)
+    parser.add_argument('-w', '--window_size', default=10, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
+    parser.add_argument('-ds', '--dataset_name', default='results')
 
 
     args = parser.parse_args()
     port = args.plot_port
     print("plotting to port %s" %port)
+
+
+    basename = 'rnn_n%s_hs%04d_ws%03d_%s' %(args.savename,
+                                      args.hidden_size,
+                                      args.window_size,
+                                      args.dataset_name,
+                                      )
+
+
     train_loss_logger = VisdomPlotLogger(
-              'line', port=port, opts={'title': '%s - Train Loss'%args.savename})
+              'line', port=port, opts={'title': '%s - Train Loss'%basename})
 
     test_loss_logger = VisdomPlotLogger(
-              'line', port=port, opts={'title': '%s - Test Loss'%args.savename})
+              'line', port=port, opts={'title': '%s - Test Loss'%basename})
     use_cuda = args.cuda
     hidden_size = args.hidden_size
     # input after only good parts of vae taken
@@ -226,28 +235,34 @@ if __name__ == '__main__':
             print("could not find model at %s"%args.rnn_model_loadpath)
             sys.exit()
 
+    if args.dataset_name == 'results':
+        test_data_name = 'episodic_vae_test_results/'
+    if args.dataset_name == 'small':
+        test_data_name = 'episodic_vae_test_small/'
+    if args.dataset_name == 'dummy':
+        test_data_name =  'episodic_vae_test_dummy/'
+    if args.dataset_name == 'tiny':
+        test_data_name =  'episodic_vae_test_tiny/'
 
-    test_data_name = 'episodic_vae_test_results/'
-    #test_data_name = 'episodic_vae_test_small/'
-    #test_data_name =  'episodic_vae_test_dummy/'
-    #test_data_name =  'episodic_vae_test_tiny/'
+    print("using dataset: %s" %test_data_name)
     train_data_name = test_data_name.replace('test', 'train')
-
     test_data_path =  os.path.join(args.datadir,test_data_name)
     train_data_path = os.path.join(args.datadir,train_data_name)
 
     test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=True)
     train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, transform=args.transform, limit=args.num_train_limit), batch_size=32, shuffle=True)
+
+
     for e in range(rnn_epoch+1,rnn_epoch+args.num_epochs):
-        ep_cnt, train_l = train(e,train_data_loader,do_use_cuda=use_cuda)
+        ep_cnt, train_l = train(e,train_data_loader,args.window_size,do_use_cuda=use_cuda)
         total_passes +=ep_cnt
-        test_l = test(e,test_data_loader,do_use_cuda=use_cuda)
+        test_l = test(e,test_data_loader,args.window_size,do_use_cuda=use_cuda)
 
         train_loss.append(np.mean(train_l))
         test_loss.append(np.mean(test_l))
         train_loss_logger.log(e,train_loss[-1])
         test_loss_logger.log(e, test_loss[-1])
-        print('epoch {} train loss mean {} test loss mean{ }'.format(e,
+        print('epoch {} train loss mean {} test loss mean {}'.format(e,
                               np.mean(train_loss),
                               np.mean(test_loss)))
 
@@ -259,7 +274,7 @@ if __name__ == '__main__':
                     'optimizer':optim.state_dict(),
                     'total_passes':total_passes,
                      }
-            filename = os.path.join(default_base_savedir , '%s_rnn_model_epoch_%06d.pkl'%(args.savename,e))
+            filename = os.path.join(default_base_savedir , basename + "e%05d.pkl"%e)
             save_checkpoint(state, filename=filename)
             time.sleep(5)
 
