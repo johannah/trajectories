@@ -227,8 +227,8 @@ if __name__ == '__main__':
             sys.exit()
 
 
-    #test_data_name = 'episodic_vae_test_results/'
-    test_data_name = 'episodic_vae_test_small/'
+    test_data_name = 'episodic_vae_test_results/'
+    #test_data_name = 'episodic_vae_test_small/'
     #test_data_name =  'episodic_vae_test_dummy/'
     #test_data_name =  'episodic_vae_test_tiny/'
     train_data_name = test_data_name.replace('test', 'train')
