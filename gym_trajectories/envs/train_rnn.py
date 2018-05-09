@@ -188,13 +188,13 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
 
 
+    args = parser.parse_args()
     port = 8097
     train_loss_logger = VisdomPlotLogger(
               'line', port=port, opts={'title': '%s - Train Loss'%args.savename})
 
     test_loss_logger = VisdomPlotLogger(
               'line', port=port, opts={'title': '%s - Test Loss'%args.savename})
-    args = parser.parse_args()
     use_cuda = args.cuda
     hidden_size = args.hidden_size
     # input after only good parts of vae taken
@@ -222,8 +222,8 @@ if __name__ == '__main__':
             sys.exit()
 
 
-    test_data_name = 'episodic_vae_test_results/'
-    #test_data_name = 'episodic_vae_test_small/'
+    #test_data_name = 'episodic_vae_test_results/'
+    test_data_name = 'episodic_vae_test_small/'
     #test_data_name =  'episodic_vae_test_dummy/'
     #test_data_name =  'episodic_vae_test_tiny/'
     train_data_name = test_data_name.replace('test', 'train')
