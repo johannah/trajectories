@@ -191,6 +191,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     port = args.plot_port
+    print("plotting to port %s" %port)
     train_loss_logger = VisdomPlotLogger(
               'line', port=port, opts={'title': '%s - Train Loss'%args.savename})
 
@@ -240,9 +241,9 @@ if __name__ == '__main__':
         test_losses = test(e,test_data_loader,do_use_cuda=use_cuda)
         train_loss_logger.log(e,np.mean(train_losses))
         test_loss_logger.log(e,np.mean(test_losses))
-        print('saving epoch {} train loss {} test loss {}'.format(e,
-                                                                      np.mean(train_losses),
-                                                                      np.mean(test_losses)))
+        print('epoch {} train loss {} test loss {}'.format(e,
+                              np.mean(train_losses),
+                              np.mean(test_losses)))
 
         if not e%args.save_every:
             state = {'epoch':e,
