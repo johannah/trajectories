@@ -207,8 +207,8 @@ if __name__ == '__main__':
     rnn_epoch = 0
     total_passes = 0
 
-    train_losses = []
-    test_losses = []
+    train_loss = []
+    test_loss = []
     if args.rnn_model_loadpath is not None:
         if  os.path.exists(args.rnn_model_loadpath):
             rnn_model_dict = torch.load(args.rnn_model_loadpath)
@@ -247,14 +247,14 @@ if __name__ == '__main__':
         test_loss.append(np.mean(test_l))
         train_loss_logger.log(e,train_loss[-1])
         test_loss_logger.log(e, test_loss[-1])
-        print('epoch {} train loss {} test loss {}'.format(e,
-                              np.mean(train_losses),
-                              np.mean(test_losses)))
+        print('epoch {} train loss mean {} test loss mean{ }'.format(e,
+                              np.mean(train_loss),
+                              np.mean(test_loss)))
 
         if not e%args.save_every:
             state = {'epoch':e,
-                    'train_loss':np.mean(train_losses),
-                    'test_loss':np.mean(test_losses),
+                    'train_loss':train_loss,
+                    'test_loss':test_loss,
                     'state_dict':rnn.state_dict(),
                     'optimizer':optim.state_dict(),
                     'total_passes':total_passes,
