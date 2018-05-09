@@ -132,8 +132,6 @@ def train(e,dataloader,do_use_cuda=False):
                 batch_losses.append(ll)
         losses.extend(batch_losses)
         pred = torch.stack(outputs, 0)
-        if not batch_idx%100:
-            print('epoch {} batch_idx {} loss {}'.format(e,batch_idx,np.mean((batch_losses))))
     return cnt, losses
 
 def save_checkpoint(state, filename='model.pkl'):
@@ -208,6 +206,9 @@ if __name__ == '__main__':
         rnn.cuda()
     rnn_epoch = 0
     total_passes = 0
+
+    train_losses = []
+    test_losses = []
     if args.rnn_model_loadpath is not None:
         if  os.path.exists(args.rnn_model_loadpath):
             rnn_model_dict = torch.load(args.rnn_model_loadpath)
@@ -216,8 +217,10 @@ if __name__ == '__main__':
             rnn_epoch = rnn_model_dict['epoch']
             try:
                 total_passes = rnn_model_dict['total_passes']
+                train_loss = rnn_model_dict['train_loss']
+                test_loss = rnn_model_dict['test_loss']
             except:
-                total_passes = total_passes
+                print("could not load total passes")
             print("loaded rnn from %s at epoch %s" %(args.rnn_model_loadpath, rnn_epoch))
         else:
             print("could not find model at %s"%args.rnn_model_loadpath)
@@ -236,11 +239,14 @@ if __name__ == '__main__':
     test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=True)
     train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, transform=args.transform, limit=args.num_train_limit), batch_size=32, shuffle=True)
     for e in range(rnn_epoch+1,rnn_epoch+args.num_epochs):
-        ep_cnt, train_losses = train(e,train_data_loader,do_use_cuda=use_cuda)
+        ep_cnt, train_l = train(e,train_data_loader,do_use_cuda=use_cuda)
         total_passes +=ep_cnt
-        test_losses = test(e,test_data_loader,do_use_cuda=use_cuda)
-        train_loss_logger.log(e,np.mean(train_losses))
-        test_loss_logger.log(e,np.mean(test_losses))
+        test_l = test(e,test_data_loader,do_use_cuda=use_cuda)
+
+        train_loss.append(np.mean(train_l))
+        test_loss.append(np.mean(test_l))
+        train_loss_logger.log(e,train_loss[-1])
+        test_loss_logger.log(e, test_loss[-1])
         print('epoch {} train loss {} test loss {}'.format(e,
                               np.mean(train_losses),
                               np.mean(test_losses)))
