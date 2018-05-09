@@ -185,11 +185,12 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--num_epochs', default=350, type=int)
     parser.add_argument('-hs', '--hidden_size', default=512, type=int)
     parser.add_argument('-se', '--save_every', default=10, type=int)
+    parser.add_argument('-p', '--plot_port', default=8097, type=int)
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
 
 
     args = parser.parse_args()
-    port = 8097
+    port = args.plot_port
     train_loss_logger = VisdomPlotLogger(
               'line', port=port, opts={'title': '%s - Train Loss'%args.savename})
 
