@@ -135,8 +135,53 @@ class EpisodicFroggerDataset(Dataset):
             mu_scaled= ((mu-vae_mu_mean)/vae_mu_std).astype(np.float32)
         else:
             mu_scaled = mu
+            sig_scaled = sig
 
-        return mu_scaled,mu,sig,dname
+        return mu_scaled,mu,sig_scaled,sig,dname
+
+
+class EpisodicDiffFroggerDataset(Dataset):
+    def __init__(self, root_dir, transform=None, limit=-1, search='*conv_vae.npz'):
+        # what really matters is the seed - only generated one game per seed
+        #seed_00334_episode_00029_frame_00162.png
+        self.root_dir = root_dir
+        self.transform = transform
+        search_path = os.path.join(self.root_dir, search)
+        self.indexes = sorted(glob(search_path))
+        dparams = np.load('vae_diff_params.npz')
+        self.mu_diff_mean = dparams['mu_diff_mean'][best_inds]
+        self.mu_diff_std = dparams['mu_diff_std'][best_inds]
+        self.sig_diff_mean = dparams['sig_diff_mean'][best_inds]
+        self.sig_diff_std = dparams['sig_diff_std'][best_inds]
+        print("will use transform:%s"%transform)
+        print("found %s files in %s" %(len(self.indexes), search_path))
+        if not len(self.indexes):
+            print("Error no files found at {}".format(search_path))
+            sys.exit()
+        if limit > 0:
+            self.indexes = self.indexes[:min(len(self.indexes), limit)]
+            print('limited to first %s examples' %len(self.indexes))
+
+    def __len__(self):
+        return len(self.indexes)
+
+    def __getitem__(self, idx):
+        if idx == 0:
+            print("loading first file")
+        dname = self.indexes[idx]
+        d = np.load(open(dname, 'rb'))
+        mu = d['mu'].astype(np.float32)[:,best_inds]
+        sig = d['sigma'].astype(np.float32)[:,best_inds]
+        mu_diff = np.diff(mu,n=1,axis=0)
+        sig_diff = np.diff(sig,n=1,axis=0)
+        if self.transform == 'std':
+            mu_scaled= ((mu_diff-self.mu_diff_mean)/self.mu_diff_std).astype(np.float32)
+            sig_scaled= ((sig_diff-self.sig_diff_mean)/self.sig_diff_std).astype(np.float32)
+        else:
+            mu_scaled = mu_diff
+            sig_scaled = sig_diff
+        return mu_scaled,mu_diff,sig_scaled,sig_diff,dname
+
 
 
 

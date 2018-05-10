@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import torch.nn.init as init
 from IPython import embed
 import shutil
-from datasets import EpisodicFroggerDataset
+from datasets import EpisodicFroggerDataset, EpisodicDiffFroggerDataset
 
 from glob import glob
 from vq_vae_small import AutoEncoder, to_scalar
@@ -37,7 +37,7 @@ torch.manual_seed(139)
 
 def test(e,dataloader,window_size,do_use_cuda=False):
     losses = []
-    for batch_idx, (data_mu_scaled, _, data_sigma, name) in enumerate(dataloader):
+    for batch_idx, (data_mu_scaled, _, data_sigma_scaled, _, name) in enumerate(dataloader):
         batch_losses = []
         batch_size = data_mu_scaled.shape[0]
         # only use relevant mus
@@ -80,7 +80,9 @@ def test(e,dataloader,window_size,do_use_cuda=False):
 def train(e,dataloader,window_size,do_use_cuda=False):
     losses = []
     cnt = 0
-    for batch_idx, (data_mu_scaled, _, data_sigma, name) in enumerate(dataloader):
+    for batch_idx, (data_mu_scaled, _, data_sigma_scaled, _,  name) in enumerate(dataloader):
+        if not batch_idx % 10:
+            print('epoch {} batch_idx {}'.format(e,batch_idx))
         batch_losses = []
         batch_size = data_mu_scaled.shape[0]
         # only use relevant mus
@@ -172,12 +174,13 @@ if __name__ == '__main__':
     import argparse
     default_base_datadir = '/localdata/jhansen/trajectories_frames/dataset/'
     default_base_savedir = '/localdata/jhansen/trajectories_frames/saved/'
-    parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
+    parser = argparse.ArgumentParser(description='train for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-t', '--transform', default='pca')
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-l', '--rnn_model_loadpath', default=None)
     parser.add_argument('-s', '--savename', default='base')
+    parser.add_argument('-dt', '--data_type', default='diff')
     parser.add_argument('-e', '--num_epochs', default=350, type=int)
     parser.add_argument('-hs', '--hidden_size', default=512, type=int)
     parser.add_argument('-se', '--save_every', default=10, type=int)
@@ -190,9 +193,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     port = args.plot_port
     print("plotting to port %s" %port)
+    print("make sure visdom server is running")
+    print("python -m visdom.server -port %s" %port)
 
 
-    basename = 'rnn_n%s_hs%04d_ws%03d_%s' %(args.savename,
+    basename = 'rnn_n%s_dt_%s_hs%04d_ws%03d_%s' %(args.savename,
+                                    args.data_type,
                                       args.hidden_size,
                                       args.window_size,
                                       args.dataset_name,
@@ -234,6 +240,8 @@ if __name__ == '__main__':
         else:
             print("could not find model at %s"%args.rnn_model_loadpath)
             sys.exit()
+    else:
+        print("creating new model")
 
     if args.dataset_name == 'results':
         test_data_name = 'episodic_vae_test_results/'
@@ -249,10 +257,15 @@ if __name__ == '__main__':
     test_data_path =  os.path.join(args.datadir,test_data_name)
     train_data_path = os.path.join(args.datadir,train_data_name)
 
-    test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=True)
-    train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, transform=args.transform, limit=args.num_train_limit), batch_size=32, shuffle=True)
+    if args.data_type == 'diff':
+        test_data_loader = DataLoader(EpisodicDiffFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=True)
+        train_data_loader = DataLoader(EpisodicDiffFroggerDataset(train_data_path, transform=args.transform, limit=args.num_train_limit), batch_size=32, shuffle=True)
+    else:
+        test_data_loader = DataLoader(EpisodicFroggerDataset(test_data_path, transform=args.transform), batch_size=32, shuffle=True)
+        train_data_loader = DataLoader(EpisodicFroggerDataset(train_data_path, transform=args.transform, limit=args.num_train_limit), batch_size=32, shuffle=True)
 
 
+    print("starting training")
     for e in range(rnn_epoch+1,rnn_epoch+args.num_epochs):
         ep_cnt, train_l = train(e,train_data_loader,args.window_size,do_use_cuda=use_cuda)
         total_passes +=ep_cnt
