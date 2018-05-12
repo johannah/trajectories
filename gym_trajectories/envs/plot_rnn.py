@@ -44,10 +44,22 @@ mu_diff_std = dparams['mu_diff_std'][best_inds]
 sig_diff_mean = dparams['sig_diff_mean'][best_inds]
 sig_diff_std = dparams['sig_diff_std'][best_inds]
 
+def get_cuts(length,window_size):
+    assert(window_size<length)
+    st_pts = list(np.arange(0,length,window_size,dtype=np.int))
+    end_pts = st_pts[1:]
+    if end_pts[-1] != length:
+         end_pts.append(length)
+    else:
+         print("cutting start")
+         st_pts = st_pts[:-1]
+    return zip(st_pts, end_pts)
+
+
 def generate_imgs(dataloader,output_filepath,true_img_path,data_type,transform):
     if not os.path.exists(output_filepath):
         os.makedirs(output_filepath)
-    for batch_idx, (data_mu_diff_scaled, data_mu_diff, data_mu_orig, data_sigma_scaled, data_sigma_orig, name) in enumerate(dataloader):
+    for batch_idx, (data_mu_diff_scaled, data_mu_diff, data_mu_orig, data_sigma_diff_scaled, data_sigma_diff, data_sigma_orig, name) in enumerate(dataloader):
         # data_mu_orig will be one longer than the diff versions
         batch_size = data_mu_diff_scaled.shape[0]
         # predict one less time step than availble (first is input)
@@ -74,28 +86,54 @@ def generate_imgs(dataloader,output_filepath,true_img_path,data_type,transform):
         # get time offsets correct
         x = seq[:-1]
         # put initial step in
-        outputs = [seq[0]]
+        rnn_outputs = [seq[0]]
+        gt_outputs = [seq[0]]
+        nrnn_outputs = [seq[0].cpu().data.numpy()]
+        ngt_outputs = [seq[0].cpu().data.numpy()]
         for i in range(len(x)):
             # number of frames to start with
             #if i < 4:
             output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
             #else:
             #    output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(output, h1_tm1, c1_tm1, h2_tm1, c2_tm1)
-            outputs+=[output]
-        rnn_pred = torch.stack(outputs, 0)
+            nrnn_outputs+=[output.cpu().data.numpy()]
+            rnn_outputs+=[output]
+
+            # put ground truth in to check pipeline
+            ngt_outputs+=[seq[i+1].cpu().data.numpy()]
+            gt_outputs+=[seq[i+1]]
+            print(output.sum().data[0],seq[i+1].sum().data[0])
 
         # vae data shoud be batch,timestep(example),features
+        # 0th frame is the same here
+        gt_rnn_pred = torch.stack(gt_outputs, 0)
+        rnn_pred = torch.stack(rnn_outputs, 0)
+
+        # 0th frame is the same here
         rnn_mu_diff_scaled = rnn_pred.permute(1,0,2).data.numpy()
+        gt_rnn_mu_diff_scaled = gt_rnn_pred.permute(1,0,2).data.numpy()
+
+        nrnn_mu_diff_scaled =  np.swapaxes(np.array(nrnn_outputs),0,1)
+        ngt_rnn_mu_diff_scaled = np.swapaxes(np.array(ngt_outputs),0,1)
 
         # only use relevant mus
         orig_mu_placeholder = Variable(torch.FloatTensor(np.zeros((n_timesteps, vae_input_size))), requires_grad=False)
         diff_mu_placeholder = Variable(torch.FloatTensor(np.zeros((n_timesteps, vae_input_size))), requires_grad=False)
         diff_mu_unscaled_placeholder = Variable(torch.FloatTensor(np.zeros((n_timesteps, vae_input_size))), requires_grad=False)
         diff_mu_unscaled_rnn_placeholder = Variable(torch.FloatTensor(np.zeros((n_timesteps,  vae_input_size))), requires_grad=False)
+        gt_diff_mu_unscaled_rnn_placeholder = Variable(torch.FloatTensor(np.zeros((n_timesteps,  vae_input_size))), requires_grad=False)
 
-        # convert to numpy so broadcasting works
-        data_mu_diff_unscaled = torch.FloatTensor((data_mu_diff_scaled.numpy()*mu_diff_std)+mu_diff_mean[None])
-        rnn_mu_diff_unscaled = torch.FloatTensor((rnn_mu_diff_scaled*mu_diff_std)+mu_diff_mean[None])
+        if transform == "std":
+            print("removing standard deviation transform")
+            # convert to numpy so broadcasting works
+            rnn_mu_diff_unscaled = torch.FloatTensor((rnn_mu_diff_scaled*mu_diff_std)+mu_diff_mean[None])
+            gt_rnn_mu_diff_unscaled = torch.FloatTensor((gt_rnn_mu_diff_scaled*mu_diff_std)+mu_diff_mean[None])
+            data_mu_diff_unscaled = torch.FloatTensor((data_mu_diff_scaled.numpy()*mu_diff_std)+mu_diff_mean[None])
+        else:
+            print("no transform")
+            rnn_mu_diff_unscaled = rnn_mu_diff_scaled
+            gt_rnn_mu_diff_unscaled = gt_rnn_mu_diff_scaled
+            data_mu_diff_unscaled = data_mu_diff_scaled
 
         # go through each distinct episode (should be length of 167)
         for e in range(batch_size):
@@ -110,6 +148,7 @@ def generate_imgs(dataloader,output_filepath,true_img_path,data_type,transform):
             ep_mu_diff = data_mu_diff[e]
             ep_mu_diff_unscaled = data_mu_diff_unscaled[e]
             ep_mu_diff_unscaled_rnn = rnn_mu_diff_unscaled[e]
+            gt_ep_mu_diff_unscaled_rnn = gt_rnn_mu_diff_unscaled[e]
 
             primer_frame = data_mu_orig[e,0,:]
             # need to reconstruct from original
@@ -119,30 +158,43 @@ def generate_imgs(dataloader,output_filepath,true_img_path,data_type,transform):
             ep_mu_diff[0] += primer_frame
             ep_mu_diff_unscaled[0] += primer_frame
             ep_mu_diff_unscaled_rnn[0] += primer_frame
+            gt_ep_mu_diff_unscaled_rnn[0] += primer_frame
+            print("before diff add")
             for diff_frame in range(1,n_timesteps):
-                print("adding diff to %s" %diff_frame)
+                #print("adding diff to %s" %diff_frame)
                 ep_mu_diff[diff_frame] += ep_mu_diff[diff_frame-1]
                 ep_mu_diff_unscaled[diff_frame] += ep_mu_diff_unscaled[diff_frame-1]
                 ep_mu_diff_unscaled_rnn[diff_frame] += ep_mu_diff_unscaled_rnn[diff_frame-1]
+                gt_ep_mu_diff_unscaled_rnn[diff_frame] += gt_ep_mu_diff_unscaled_rnn[diff_frame-1]
 
             orig_mu_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_orig))
             diff_mu_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_diff))
             diff_mu_unscaled_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_diff_unscaled))
             diff_mu_unscaled_rnn_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_diff_unscaled_rnn))
+            gt_diff_mu_unscaled_rnn_placeholder[:,best_inds] = Variable(torch.FloatTensor(gt_ep_mu_diff_unscaled_rnn))
+            #for i in range(1,diff_mu_unscaled_rnn_placeholder.shape[0]):
+            #    diff_mu_unscaled_rnn_placeholder[i] = gt_diff_mu_unscaled_rnn_placeholder[i]
             # add a placeholder here if you want to process it
             mu_types = OrderedDict([('orig',orig_mu_placeholder),
-                                   ('diff',diff_mu_placeholder),
-                                   ('diff_unscaled',diff_mu_unscaled_placeholder),
+                                 #  ('diff',diff_mu_placeholder),
+                                 #  ('diff_unscaled',diff_mu_unscaled_placeholder),
+                                   ('gtrnn',gt_diff_mu_unscaled_rnn_placeholder),
                                    ('rnn',diff_mu_unscaled_rnn_placeholder),
                                    ])
             mu_reconstructed = OrderedDict()
             # get reconstructed image for each type
             for xx, mu_output_name in enumerate(mu_types.keys()):
                 mu_output = mu_types[mu_output_name]
-                print(mu_output_name, mu_output.sum())
-                x_d = vae.decoder(mu_output.contiguous().view(mu_output.shape[0], 32, 5, 5))
-                x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, deterministic=True)
-                nx_tilde = x_tilde.cpu().data.numpy()
+                cuts = get_cuts(mu_output.shape[0], 1)
+                print(mu_output_name, mu_output.sum().data[0], mu_output[0].sum().data[0])
+                x_tildes = []
+                for (s,e) in cuts:
+                    mu_batch = mu_output[s:e]
+                    # only put part of the episdoe through
+                    x_d = vae.decoder(mu_batch.contiguous().view(mu_batch.shape[0], 32, 5, 5))
+                    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, deterministic=True)
+                    x_tildes.append(x_tilde.cpu().data.numpy())
+                nx_tilde = np.array(x_tildes)[:,0,0]
                 inx_tilde = ((0.5*nx_tilde+0.5)*255).astype(np.uint8)
                 mu_reconstructed[mu_output_name] = inx_tilde
 
@@ -157,7 +209,7 @@ def generate_imgs(dataloader,output_filepath,true_img_path,data_type,transform):
                 ax[0].set_title('true frame %04d'%frame_num)
 
                 for ii, mu_output_name in enumerate(mu_reconstructed.keys()):
-                    ax[ii+1].imshow(mu_reconstructed[mu_output_name][frame_num][0], origin='lower')
+                    ax[ii+1].imshow(mu_reconstructed[mu_output_name][frame_num], origin='lower')
                     ax[ii+1].set_title(mu_output_name)
 
                 f.tight_layout()
@@ -244,7 +296,7 @@ if __name__ == '__main__':
 
     #test_dir = 'episodic_vae_test_results'
     #test_dir = 'episodic_vae_test_tiny/'
-    test_dir = 'episodic_vae_test_small/'
+    test_dir = 'episodic_vae_test_tiny/'
     train_dir = test_dir.replace('test', 'train')
     gen_test_dir = test_dir.replace('episodic_', 'episodic_rnn_')
     gen_train_dir = train_dir.replace('episodic_', 'episodic_rnn_')

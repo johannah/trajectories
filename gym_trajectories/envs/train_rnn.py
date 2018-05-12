@@ -37,13 +37,13 @@ torch.manual_seed(139)
 
 def test(e,dataloader,window_size,do_use_cuda=False):
     losses = []
-    for batch_idx, (data_mu_scaled, _, data_sigma_scaled, _, name) in enumerate(dataloader):
+    for batch_idx, (data_mu_diff_scaled, _, _, data_sigma_diff_scaled, _, _, name) in enumerate(dataloader):
         batch_losses = []
-        batch_size = data_mu_scaled.shape[0]
+        batch_size = data_mu_diff_scaled.shape[0]
         # only use relevant mus
         # data_mu_scaled is example, timesteps, features
         # data shoud be timestep,batchsize,features
-        data = data_mu_scaled.permute(1,0,2)
+        data = data_mu_diff_scaled.permute(1,0,2)
         if do_use_cuda:
             seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
@@ -75,20 +75,30 @@ def test(e,dataloader,window_size,do_use_cuda=False):
         losses.extend(batch_losses)
     return losses
 
+def get_cuts(length,window_size):
+    assert(window_size<length)
+    st_pts = list(np.arange(0,length,window_size,dtype=np.int))
+    end_pts = st_pts[1:]
+    if end_pts[-1] != length:
+         end_pts.append(length)
+    else:
+         print("cutting start")
+         st_pts = st_pts[:-1]
+    return zip(st_pts, end_pts)
 
 
 def train(e,dataloader,window_size,do_use_cuda=False):
     losses = []
     cnt = 0
-    for batch_idx, (data_mu_scaled, _, _, data_sigma_scaled, _, _, name) in enumerate(dataloader):
+    for batch_idx, (data_mu_diff_scaled, _, _, data_sigma_diff_scaled, _, _, name) in enumerate(dataloader):
         if not batch_idx % 10:
             print('epoch {} batch_idx {}'.format(e,batch_idx))
         batch_losses = []
-        batch_size = data_mu_scaled.shape[0]
+        batch_size = data_mu_diff_scaled.shape[0]
         # only use relevant mus
         # data_mu_scaled is example, timesteps, features
         # data shoud be timestep,batchsize,features
-        data = data_mu_scaled.permute(1,0,2)
+        data = data_mu_diff_scaled.permute(1,0,2)
         if do_use_cuda:
             seq = Variable(torch.FloatTensor(data), requires_grad=False).cuda()
             h1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False).cuda()
@@ -108,28 +118,30 @@ def train(e,dataloader,window_size,do_use_cuda=False):
         seen = 0
         clip = 10
         cnt +=batch_size
-        for i in range(len(x)):
-            output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
-            outputs+=[output]
-            seen +=1
 
-            if ((not i%window_size) and (seen>1) or (i==(len(x)-1))):
-                optim.zero_grad()
-                local_pred = torch.stack(outputs[i-(seen-1):i], 0)
-                mse_loss = ((local_pred-y[i-(seen-1):i])**2).mean()
-                seen = 0
-                mse_loss.backward()
-                for p in rnn.parameters():
-                    p.grad.data.clamp_(min=-clip,max=clip)
-                optim.step()
-                # detach hiddens and output
-                h1_tm1 = h1_tm1.detach()
-                c1_tm1 = c1_tm1.detach()
-                h2_tm1 = h2_tm1.detach()
-                c2_tm1 = c2_tm1.detach()
-
-                ll = mse_loss.cpu().data.numpy()[0]
-                batch_losses.append(ll)
+        cuts = get_cuts(x.shape[0], window_size)
+        for st,en in cuts:
+            for i in range(st, en):
+                #print("forward i", i)
+                output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
+                outputs+=[output]
+            # truncated backprop
+            optim.zero_grad()
+            #print('backprop', st, en)
+            local_pred = torch.stack(outputs[st:en], 0)
+            mse_loss = ((local_pred-y[st:en])**2).mean()
+            seen = 0
+            mse_loss.backward()
+            for p in rnn.parameters():
+                p.grad.data.clamp_(min=-clip,max=clip)
+            optim.step()
+            # detach hiddens and output
+            h1_tm1 = h1_tm1.detach()
+            c1_tm1 = c1_tm1.detach()
+            h2_tm1 = h2_tm1.detach()
+            c2_tm1 = c2_tm1.detach()
+            ll = mse_loss.cpu().data.numpy()[0]
+            batch_losses.append(ll)
         losses.extend(batch_losses)
         pred = torch.stack(outputs, 0)
     return cnt, losses
@@ -277,10 +289,10 @@ if __name__ == '__main__':
         train_loss_logger.log(e,train_loss[-1])
         test_loss_logger.log(e, test_loss[-1])
         print('epoch {} train loss mean {} test loss mean {}'.format(e,
-                              np.mean(train_loss),
-                              np.mean(test_loss)))
+                              train_loss[-1],
+                              test_loss[-1]))
 
-        if not e%args.save_every:
+        if ((not e%args.save_every) or (e == rnn_epoch_args.num_epochs)):
             state = {'epoch':e,
                     'train_loss':train_loss,
                     'test_loss':test_loss,

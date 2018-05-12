@@ -175,14 +175,19 @@ class EpisodicDiffFroggerDataset(Dataset):
         mu_diff = np.diff(mu,n=1,axis=0)
         sig_diff = np.diff(sig,n=1,axis=0)
         if self.transform == 'std':
-            mu_scaled= ((mu_diff-self.mu_diff_mean)/self.mu_diff_std).astype(np.float32)
-            sig_scaled= ((sig_diff-self.sig_diff_mean)/self.sig_diff_std).astype(np.float32)
-            mu_unscaled = ((mu_scaled*self.mu_diff_std)+self.mu_diff_mean).astype(np.float32)
-            sig_unscaled = ((sig_scaled*self.sig_diff_std)+self.sig_diff_mean).astype(np.float32)
+            if not idx:
+                print("performing transform std")
+            mu_diff_scaled= ((mu_diff-self.mu_diff_mean)/self.mu_diff_std).astype(np.float32)
+            sig_diff_scaled= ((sig_diff-self.sig_diff_mean)/self.sig_diff_std).astype(np.float32)
+            # how to unscale
+            #mu_diff_unscaled = ((mu_scaled*self.mu_diff_std)+self.mu_diff_mean).astype(np.float32)
+            #sig_diff_unscaled = ((sig_scaled*self.sig_diff_std)+self.sig_diff_mean).astype(np.float32)
         else:
-            mu_scaled = mu_diff
-            sig_scaled = sig_diff
-        return mu_scaled,mu_diff,mu,sig_scaled,sig,dname
+            if not idx:
+                print("performing no data transform")
+            mu_diff_scaled = mu_diff
+            sig_diff_scaled = sig_diff
+        return mu_diff_scaled,mu_diff,mu,sig_diff_scaled,sig_diff,sig,dname
 
 
 
