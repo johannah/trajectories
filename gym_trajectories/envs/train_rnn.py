@@ -80,7 +80,7 @@ def test(e,dataloader,window_size,do_use_cuda=False):
 def train(e,dataloader,window_size,do_use_cuda=False):
     losses = []
     cnt = 0
-    for batch_idx, (data_mu_scaled, _, data_sigma_scaled, _,  name) in enumerate(dataloader):
+    for batch_idx, (data_mu_scaled, _, _, data_sigma_scaled, _, _, name) in enumerate(dataloader):
         if not batch_idx % 10:
             print('epoch {} batch_idx {}'.format(e,batch_idx))
         batch_losses = []
@@ -176,7 +176,7 @@ if __name__ == '__main__':
     default_base_savedir = '/localdata/jhansen/trajectories_frames/saved/'
     parser = argparse.ArgumentParser(description='train for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
-    parser.add_argument('-t', '--transform', default='pca')
+    parser.add_argument('-t', '--transform', default='std')
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
     parser.add_argument('-l', '--rnn_model_loadpath', default=None)
     parser.add_argument('-s', '--savename', default='base')
@@ -197,10 +197,11 @@ if __name__ == '__main__':
     print("python -m visdom.server -port %s" %port)
 
 
-    basename = 'rnn_n%s_dt_%s_hs%04d_ws%03d_%s' %(args.savename,
-                                    args.data_type,
+    basename = 'rnn_n%s_dt_%s_hs%04d_ws%03d_transform%s_%s' %(args.savename,
+                                      args.data_type,
                                       args.hidden_size,
                                       args.window_size,
+                                      args.transform,
                                       args.dataset_name,
                                       )
 

@@ -212,7 +212,7 @@ def sample_from_discretized_mix_logistic_1d(l, nr_mix):
     return out
 
 
-def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
+def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True, deterministic=False):
     # Pytorch ordering
     l = l.permute(0, 2, 3, 1)
     ls = [int(y) for y in l.size()]
@@ -227,7 +227,8 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     temp.uniform_(1e-5, 1. - 1e-5)
     # hack to make deterministic JRH
     # could also just take argmax of logit_probs
-    #temp = temp*0.0+0.5
+    if deterministic:
+        temp = temp*0.0+0.5
     temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
 
@@ -243,7 +244,8 @@ def sample_from_discretized_mix_logistic(l, nr_mix, only_mean=True):
     if l.is_cuda : u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
     # hack to make deterministic JRH
-    #u= u*0.0+0.5
+    if deterministic:
+        u= u*0.0+0.5
     u = Variable(u)
 
     if only_mean:

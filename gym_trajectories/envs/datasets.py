@@ -177,10 +177,12 @@ class EpisodicDiffFroggerDataset(Dataset):
         if self.transform == 'std':
             mu_scaled= ((mu_diff-self.mu_diff_mean)/self.mu_diff_std).astype(np.float32)
             sig_scaled= ((sig_diff-self.sig_diff_mean)/self.sig_diff_std).astype(np.float32)
+            mu_unscaled = ((mu_scaled*self.mu_diff_std)+self.mu_diff_mean).astype(np.float32)
+            sig_unscaled = ((sig_scaled*self.sig_diff_std)+self.sig_diff_mean).astype(np.float32)
         else:
             mu_scaled = mu_diff
             sig_scaled = sig_diff
-        return mu_scaled,mu_diff,sig_scaled,sig_diff,dname
+        return mu_scaled,mu_diff,mu,sig_scaled,sig,dname
 
 
 
