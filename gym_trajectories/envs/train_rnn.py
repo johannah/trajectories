@@ -56,23 +56,22 @@ def test(e,dataloader,window_size,do_use_cuda=False):
             c1_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             h2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
             c2_tm1 = Variable(torch.FloatTensor(np.zeros((batch_size, hidden_size))), requires_grad=False)
-
         y = seq[1:]
         x = seq[:-1]
         outputs = []
-        seen = 0
-        for i in range(len(x)):
-            output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
-            outputs+=[output]
-            seen +=1
-            if ((not i%window_size) and (seen>1) or (i==(len(x)-1))):
-                optim.zero_grad()
-                local_pred = torch.stack(outputs[i-(seen-1):i], 0)
-                mse_loss = ((local_pred-y[i-(seen-1):i])**2).mean()
-                seen = 0
-                ll = mse_loss.cpu().data.numpy()[0]
-                batch_losses.append(ll)
+        clip = 10
+        cuts = get_cuts(x.shape[0], window_size)
+        for st,en in cuts:
+            for i in range(st, en):
+                #print("forward i", i)
+                output, h1_tm1, c1_tm1, h2_tm1, c2_tm1 = rnn(x[i], h1_tm1, c1_tm1, h2_tm1, c2_tm1)
+                outputs+=[output]
+            local_pred = torch.stack(outputs[st:en], 0)
+            mse_loss = ((local_pred-y[st:en])**2).mean()
+            ll = mse_loss.cpu().data.numpy()[0]
+            batch_losses.append(ll)
         losses.extend(batch_losses)
+        pred = torch.stack(outputs, 0)
     return losses
 
 def get_cuts(length,window_size):
@@ -115,7 +114,6 @@ def train(e,dataloader,window_size,do_use_cuda=False):
         y = seq[1:]
         x = seq[:-1]
         outputs = []
-        seen = 0
         clip = 10
         cnt +=batch_size
 
@@ -130,7 +128,6 @@ def train(e,dataloader,window_size,do_use_cuda=False):
             #print('backprop', st, en)
             local_pred = torch.stack(outputs[st:en], 0)
             mse_loss = ((local_pred-y[st:en])**2).mean()
-            seen = 0
             mse_loss.backward()
             for p in rnn.parameters():
                 p.grad.data.clamp_(min=-clip,max=clip)
@@ -292,7 +289,7 @@ if __name__ == '__main__':
                               train_loss[-1],
                               test_loss[-1]))
 
-        if ((not e%args.save_every) or (e == rnn_epoch_args.num_epochs)):
+        if ((not e%args.save_every) or (e == rnn_epoch+args.num_epochs)):
             state = {'epoch':e,
                     'train_loss':train_loss,
                     'test_loss':test_loss,

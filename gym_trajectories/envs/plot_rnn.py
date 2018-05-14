@@ -167,6 +167,21 @@ def generate_imgs(dataloader,output_filepath,true_img_path,data_type,transform):
                 ep_mu_diff_unscaled_rnn[diff_frame] += ep_mu_diff_unscaled_rnn[diff_frame-1]
                 gt_ep_mu_diff_unscaled_rnn[diff_frame] += gt_ep_mu_diff_unscaled_rnn[diff_frame-1]
 
+            rnn_mu_img = ep_mu_diff_unscaled_rnn.numpy()
+            gt_rnn_mu_img = gt_ep_mu_diff_unscaled_rnn.numpy()
+            ff,axf = plt.subplots(1,2, figsize=(5,10))
+            axf[0].imshow(gt_rnn_mu_img, origin='lower')
+            axf[0].set_title("gt_rnn_mu")
+            axf[1].imshow(rnn_mu_img, origin='lower')
+            axf[1].set_title("rnn_mu")
+            ff.tight_layout()
+            fimg_name = basepath+'_rnn_mu_plot.png'
+            fimg_name = fimg_name.replace('_frame_%05d'%0, '')
+            print("plotted %s" %fimg_name)
+            plt.savefig(fimg_name)
+            plt.close()
+
+
             orig_mu_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_orig))
             diff_mu_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_diff))
             diff_mu_unscaled_placeholder[:,best_inds] = Variable(torch.FloatTensor(ep_mu_diff_unscaled))
