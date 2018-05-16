@@ -8,6 +8,22 @@ from torch.nn.utils import weight_norm as wn
 import numpy as np
 from IPython import embed
 
+def get_cuts(length,window_size):
+    assert(window_size<length)
+    st_pts = list(np.arange(0,length,window_size,dtype=np.int))
+    end_pts = st_pts[1:]
+    if end_pts[-1] != length:
+         end_pts.append(length)
+    else:
+         print("cutting start")
+         st_pts = st_pts[:-1]
+    return zip(st_pts, end_pts)
+
+
+
+
+
+
 def concat_elu(x):
     """ like concatenated ReLU (http://arxiv.org/abs/1603.05201), but then with ELU """
     # Pytorch ordering

@@ -23,6 +23,7 @@ from vq_vae_small import AutoEncoder, to_scalar
 from conv_vae import Encoder, Decoder, VAE
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
+from utils import get_cuts
 #worst_inds = np.load('worst_inds.npz')['arr_0']
 #all_inds = range(800)
 #best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
@@ -73,18 +74,6 @@ def test(e,dataloader,window_size,do_use_cuda=False):
         losses.extend(batch_losses)
         pred = torch.stack(outputs, 0)
     return losses
-
-def get_cuts(length,window_size):
-    assert(window_size<length)
-    st_pts = list(np.arange(0,length,window_size,dtype=np.int))
-    end_pts = st_pts[1:]
-    if end_pts[-1] != length:
-         end_pts.append(length)
-    else:
-         print("cutting start")
-         st_pts = st_pts[:-1]
-    return zip(st_pts, end_pts)
-
 
 def train(e,dataloader,window_size,do_use_cuda=False):
     losses = []

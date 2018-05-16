@@ -532,14 +532,23 @@ class RoadEnv():
 
 if __name__ == '__main__':
     # generate training data
-    num_episodes = 50000
-    save_path = '/localdata/jhansen/trajectories_frames/dataset/imgs_train/'
-    seed = 600
+    train = True
+    if train:
+        dirname = 'train'
+        seed = 700
+        num_episodes = 10000
+    else:
+        dirname = 'test_small'
+        seed = 40
+        num_episodes = 50
+    ysize, xsize = 48,48
+    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_aimgs_%sx%s/'%(dirname, ysize,xsize)
     rdn = np.random.RandomState(seed)
-    env = RoadEnv(random_state=rdn, ysize=40, xsize=40, level=6)
+    env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=6)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     for e in range(num_episodes):
+        print(e/float(num_episodes))
         env.reset()
         for t in range(env.road_maps.shape[0]):
             name = os.path.join(save_path,'seed_%05d_episode_%05d_frame_%05d.png'%(seed, e, t))

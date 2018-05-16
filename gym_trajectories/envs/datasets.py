@@ -6,15 +6,15 @@ from torch.utils.data import Dataset, DataLoader
 import os, sys
 from imageio import imread
 
-pcad = np.load('pca_components_vae.npz')
-V = pcad['V']
-vae_mu_mean = pcad['Xmean']
-vae_mu_std = pcad['Xstd']
-Xpca_std = pcad['Xpca_std']
-
-worst_inds = np.load('worst_inds.npz')['arr_0']
-all_inds = range(800)
-best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
+#pcad = np.load('pca_components_vae.npz')
+#V = pcad['V']
+#vae_mu_mean = pcad['Xmean']
+#vae_mu_std = pcad['Xstd']
+#Xpca_std = pcad['Xpca_std']
+#
+#worst_inds = np.load('worst_inds.npz')['arr_0']
+#all_inds = range(800)
+#best_inds = np.array([w for w in all_inds if w not in list(worst_inds)])
 
 class FroggerDataset(Dataset):
     def __init__(self, root_dir, transform=None, limit=None):
@@ -40,8 +40,10 @@ class FroggerDataset(Dataset):
         image = imread(img_name)
         image = image[:,:,None].astype(np.float32)
         if self.transform is not None:
-            image = self.transform(image)
-
+            max_pixel = 155.0
+            min_pixel = 0.0
+            # bt 0 and 1
+            image = (self.transform(image)-min_pixel)/(max_pixel-min_pixel)
         return image,img_name
 
 class FlattenedFroggerDataset(Dataset):
@@ -101,7 +103,7 @@ class VqvaeDataset(Dataset):
         #data = 2*((data/512.0)-0.5)
         return data,data_name
 
-class EpisodicFroggerDataset(Dataset):
+class EpisodicVaeFroggerDataset(Dataset):
     def __init__(self, root_dir, transform=None, limit=-1, search='*conv_vae.npz'):
         # what really matters is the seed - only generated one game per seed
         #seed_00334_episode_00029_frame_00162.png
@@ -188,6 +190,34 @@ class EpisodicDiffFroggerDataset(Dataset):
             mu_diff_scaled = mu_diff
             sig_diff_scaled = sig_diff
         return mu_diff_scaled,mu_diff,mu,sig_diff_scaled,sig_diff,sig,dname
+
+
+class EpisodicVqVaeFroggerDataset(Dataset):
+    def __init__(self, root_dir, transform=None, limit=-1, search='seed*episode*.npz'):
+        # what really matters is the seed - only generated one game per seed
+        #seed_00334_episode_00029_frame_00162.png
+        self.root_dir = root_dir
+        self.transform = transform
+        search_path = os.path.join(self.root_dir, search)
+        self.indexes = sorted(glob(search_path))
+        print("will use transform:%s"%transform)
+        print("found %s files in %s" %(len(self.indexes), search_path))
+        if not len(self.indexes):
+            print("Error no files found at {}".format(search_path))
+            sys.exit()
+        if limit > 0:
+            self.indexes = self.indexes[:min(len(self.indexes), limit)]
+            print('limited to first %s examples' %len(self.indexes))
+
+    def __len__(self):
+        return len(self.indexes)
+
+    def __getitem__(self, idx):
+        dname = self.indexes[idx]
+        d = np.load(open(dname, 'rb'))
+        latents = d['latents']
+        return latents,dname
+
 
 
 

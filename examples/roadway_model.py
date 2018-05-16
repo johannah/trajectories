@@ -630,7 +630,6 @@ if __name__ == "__main__":
             sys.exit()
 
     if args.model_type == 'vqvae':
-
         if args.model_loadpath == "None":
             args.model_loadpath = default_vqvae_model_savepath
         num_z = 32

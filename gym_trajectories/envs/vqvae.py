@@ -13,9 +13,9 @@ from IPython import embed
 
 def to_scalar(arr):
     if type(arr) == list:
-        return [x.cpu().data.tolist()[0] for x in arr]
+        return [x.cpu().data.tolist() for x in arr]
     else:
-        return arr.cpu().data.tolist()[0]
+        return arr.cpu().data.tolist()
 
 class AutoEncoder(nn.Module):
     def __init__(self, num_clusters=512, encoder_output_size=32, nr_logistic_mix=10):
@@ -32,6 +32,7 @@ class AutoEncoder(nn.Module):
         # of 40x40x1 and z output of 10x10x9 (512 = 2**9 = 9 bits)
         # (40x40x1x8)/(10x10x9) = 12800/900 = 14.22
 
+        self.name = 'vqvae4layer'
         num_mixture = 2*self.nr_logistic_mix*data_channels_size+self.nr_logistic_mix
 
         self.encoder = nn.Sequential(
@@ -48,6 +49,12 @@ class AutoEncoder(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(True),
             nn.Conv2d(in_channels=32,
+                      out_channels=42,
+                      kernel_size=4,
+                      stride=2, padding=1),
+            nn.BatchNorm2d(42),
+            nn.ReLU(True),
+            nn.Conv2d(in_channels=42,
                       out_channels=encoder_output_size,
                       kernel_size=1,
                       stride=1, padding=0),
@@ -61,14 +68,20 @@ class AutoEncoder(nn.Module):
 
         self.decoder = nn.Sequential(
                 nn.Conv2d(in_channels=encoder_output_size,
-                          out_channels=32,
+                          out_channels=42,
                           kernel_size=1,
                           stride=1, padding=0),
-                nn.BatchNorm2d(32),
+                nn.BatchNorm2d(42),
                 nn.ReLU(True),
                 # applies a 2d transposed convolution operator over input image
                 # composed of several input planes. Can be seen as gradient of Conv2d
                 # with respsct to its input. also known as fractionally-strided conv.
+                nn.ConvTranspose2d(in_channels=42,
+                      out_channels=32,
+                      kernel_size=4,
+                      stride=2, padding=1),
+                nn.BatchNorm2d(32),
+                nn.ReLU(True),
                 nn.ConvTranspose2d(in_channels=32,
                       out_channels=16,
                       kernel_size=4,
@@ -151,3 +164,5 @@ if __name__ == '__main__':
     assert (emb == model.embedding.weight.grad.data).all() is True
 
     print(loss1, loss2, loss3)
+
+
