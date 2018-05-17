@@ -113,34 +113,36 @@ def generate_episodic_npz(data_loader,do_use_cuda,save_path,make_imgs=False):
     for batch_idx, (data, fpaths) in enumerate(data_loader):
         # batch idx must be exactly one episode
         #assert np.sum([fpaths[0][:-10] == f[:-10]  for f in fpaths]) == len(fpaths)
-        start_time = time.time()
-        if do_use_cuda:
-            x = Variable(data, requires_grad=False).cuda()
-        else:
-            x = Variable(data, requires_grad=False)
-
         episode_name = os.path.split(fpaths[0])[1].replace('_frame_00000.png', '.npz')
-        print("episode: %s" %episode_name)
-        cuts = get_cuts(x.shape[0], 34)
-        for c, (s,e) in enumerate(cuts):
-            # make batch
-            x_d, z_e_x, z_q_x, latents = vmodel(x[s:e])
-            if not c:
-                frame_nums = np.arange(s,e)[:,None]
-                xds = x_d.cpu().data.numpy()
-                zes = z_e_x.cpu().data.numpy()
-                zqs = z_q_x.cpu().data.numpy()
-                ls = latents.cpu().data.numpy()
+        episode_path = os.path.join(save_path,episode_name)
+        if not os.path.exists(episode_path):
+            print("episode: %s" %episode_name)
+            start_time = time.time()
+            if do_use_cuda:
+                x = Variable(data, requires_grad=False).cuda()
             else:
-                frame_nums = np.vstack((frame_nums, np.arange(s,e)[:,None]))
-                xds = np.vstack((xds, x_d.cpu().data.numpy()))
-                zes = np.vstack((zes, z_e_x.cpu().data.numpy()))
-                zqs = np.vstack((zqs, z_q_x.cpu().data.numpy()))
-                ls = np.vstack((ls, latents.cpu().data.numpy()))
+                x = Variable(data, requires_grad=False)
 
-        # split episode into chunks that are reasonable
-        np.savez(os.path.join(save_path,episode_name),
-                               z_e_x=zes.astype(np.float32), z_q_x=zqs.astype(np.float32), latents=ls.astype(np.int))
+            cuts = get_cuts(x.shape[0], 34)
+            for c, (s,e) in enumerate(cuts):
+                # make batch
+                x_d, z_e_x, z_q_x, latents = vmodel(x[s:e])
+                if not c:
+                    frame_nums = np.arange(s,e)[:,None]
+                    xds = x_d.cpu().data.numpy()
+                    zes = z_e_x.cpu().data.numpy()
+                    zqs = z_q_x.cpu().data.numpy()
+                    ls = latents.cpu().data.numpy()
+                else:
+                    frame_nums = np.vstack((frame_nums, np.arange(s,e)[:,None]))
+                    xds = np.vstack((xds, x_d.cpu().data.numpy()))
+                    zes = np.vstack((zes, z_e_x.cpu().data.numpy()))
+                    zqs = np.vstack((zqs, z_q_x.cpu().data.numpy()))
+                    ls = np.vstack((ls, latents.cpu().data.numpy()))
+
+            # split episode into chunks that are reasonable
+            np.savez(episode_path,
+                                   z_e_x=zes.astype(np.float32), z_q_x=zqs.astype(np.float32), latents=ls.astype(np.int))
 
 
 
@@ -302,7 +304,7 @@ if __name__ == '__main__':
         test_gen_dir = os.path.join(args.datadir, 'test_'  + basename+'_e%05d'%epoch)
         train_gen_dir = os.path.join(args.datadir, 'train_'+ basename+'_e%05d'%epoch)
 
-        #generate_episodic_npz(data_test_loader,use_cuda,train_gen_dir)
+        generate_episodic_npz(data_test_loader,use_cuda,test_gen_dir)
         generate_episodic_npz(data_train_loader,use_cuda,train_gen_dir)
 
 

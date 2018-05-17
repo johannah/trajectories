@@ -154,16 +154,26 @@ class GatedPixelCNN(nn.Module):
             x_v, x_h = layer(x_v, x_h, label, spatial_cond)
         return self.output_conv(x_h)
 
-    def generate(self, label=None, spatial_cond=None, shape=(8,8), batch_size=64):
+    def generate(self, label=None, spatial_cond=None, shape=(8,8), batch_size=1):
+
         param = next(self.parameters())
         x = torch.zeros(
                 (batch_size, shape[0], shape[1]),
                 dtype=torch.int64, device=param.device)
+
+        if spatial_cond is not None:
+            # batch size and spatial cond batch size must be the same
+            batch_size = spatial_cond.shape[0]
+
+        if batch_size != 1:
+            raise ValueError('generator needs 1 size now TODO - fix')
+
         for i in range(shape[0]):
             for j in range(shape[1]):
-                logits = self.forward(x, label, spatial_cond)
-                probs = F.softmax(logits[:,:,i,j], -1)
-                x.data[:,i,j].copy_(probs.multinomial(1).squeeze().data)
+                logits = self.forward(x, label=label, spatial_cond=spatial_cond)
+                #probs = F.softmax(logits[:,:,i,j], -1)
+                #x.data[:,i,j].copy_(probs.multinomial(1).squeeze().data)
+                x.data[:,i,j].copy_(torch.argmax(logits[:,:,i,j]))
         return x
 
 
