@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 import os, sys
 from imageio import imread
 
+from road import max_pixel, min_pixel
 #pcad = np.load('pca_components_vae.npz')
 #V = pcad['V']
 #vae_mu_mean = pcad['Xmean']
@@ -40,10 +41,8 @@ class FroggerDataset(Dataset):
         image = imread(img_name)
         image = image[:,:,None].astype(np.float32)
         if self.transform is not None:
-            max_pixel = 155.0
-            min_pixel = 0.0
             # bt 0 and 1
-            image = (self.transform(image)-min_pixel)/(max_pixel-min_pixel)
+            image = (self.transform(image)-min_pixel)/float(max_pixel-min_pixel)
         return image,img_name
 
 class FlattenedFroggerDataset(Dataset):

@@ -21,14 +21,13 @@ import time
 from glob import glob
 import os
 from imageio import imread, imwrite
+from road import  max_pixel, min_pixel
 from PIL import Image
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
 from utils import get_cuts
 from datasets import EpisodicVqVaeFroggerDataset, FroggerDataset
 
-max_pixel = 155.0
-min_pixel = 0.0
 def train(epoch,train_loader,DEVICE,history_size):
     print("starting epoch {}".format(epoch))
     train_loss = []
@@ -106,7 +105,7 @@ def generate(frame_num, gen_latents, orig_img_path, save_img_path):
     x_d = vmodel.decoder(z_q_x)
     if save_img_path is not None:
         x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        pred = (((np.array(x_tilde.cpu().data)[0,0]+1.0)/2.0)*(max_pixel-min_pixel)) + min_pixel
+        pred = (((np.array(x_tilde.cpu().data)[0,0]+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
         # input x is between 0 and 1
         real = imread(orig_img_path)
         f, ax = plt.subplots(1,3, figsize=(10,3))

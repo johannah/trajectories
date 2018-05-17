@@ -23,6 +23,9 @@ import os
 from imageio import imread, imwrite
 from PIL import Image
 
+max_pixel = 155
+min_pixel = 0
+
 class Particle():
     def __init__(self, world, name, local_map, init_y, init_x,
                  angle, speed, clear_map=False,
@@ -287,7 +290,7 @@ class RoadEnv():
                 # fast
                 'sport':{'color':130, 'speed':np.linspace(1.3,2.,10), 'xsize':max(mx-3,2), 'angles':[], 'lanes':[]},
                 # variable
-                'sedan':{'color':155, 'speed':np.linspace(1.,2.3,10), 'xsize':max(mx-4,3), 'angles':[], 'lanes':[]},
+                'sedan':{'color':max_pixel, 'speed':np.linspace(1.,2.3,10), 'xsize':max(mx-4,3), 'angles':[], 'lanes':[]},
                 }
 
 

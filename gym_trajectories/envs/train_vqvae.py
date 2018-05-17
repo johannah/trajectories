@@ -23,8 +23,6 @@ from utils import sample_from_discretized_mix_logistic
 from utils import get_cuts
 from datasets import FroggerDataset
 
-max_pixel = 155.0
-min_pixel = 0.0
 
 def train(epoch,train_loader,do_use_cuda):
     print("starting epoch {}".format(epoch))
@@ -82,9 +80,9 @@ def test(epoch,test_loader,do_use_cuda,save_img_path=None):
         idx = 0
         x_cat = torch.cat([x[idx], x_tilde[idx]], 0)
         images = x_cat.cpu().data
-        pred = (((np.array(x_tilde.cpu().data)[0,0]+1.0)/2.0)*(max_pixel-min_pixel)) + min_pixel
+        pred = (((np.array(x_tilde.cpu().data)[0,0]+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
         # input x is between 0 and 1
-        real = (np.array(x.cpu().data)[0,0]*(max_pixel-min_pixel))+min_pixel
+        real = (np.array(x.cpu().data)[0,0]*float(max_pixel-min_pixel))+min_pixel
         f, ax = plt.subplots(1,3, figsize=(10,3))
         ax[0].imshow(real, vmin=0, vmax=max_pixel)
         ax[0].set_title("original")
