@@ -13,7 +13,6 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
-from vq_vae import AutoEncoder, to_scalar
 from torch.autograd import Variable
 import numpy as np
 from torchvision.utils import save_image
@@ -545,7 +544,7 @@ if __name__ == '__main__':
         seed = 40
         num_episodes = 50
     ysize, xsize = 48,48
-    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_aimgs_%sx%s/'%(dirname, ysize,xsize)
+    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_imgs_%sx%s/'%(dirname, ysize,xsize)
     rdn = np.random.RandomState(seed)
     env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=6)
     if not os.path.exists(save_path):

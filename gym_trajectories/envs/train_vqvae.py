@@ -8,7 +8,8 @@ from IPython import embed
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
-from vqvae import AutoEncoder, to_scalar
+#from vqvae import AutoEncoder, to_scalar
+from vqvae_bigger import AutoEncoder, to_scalar
 #from vqvae_small import AutoEncoder, to_scalar
 from torch.autograd import Variable
 import numpy as np
@@ -22,7 +23,7 @@ from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
 from utils import get_cuts
 from datasets import FroggerDataset
-
+from road import max_pixel, min_pixel
 
 def train(epoch,train_loader,do_use_cuda):
     print("starting epoch {}".format(epoch))
@@ -185,7 +186,7 @@ if __name__ == '__main__':
     default_base_datadir = '../../../trajectories_frames/dataset/'
     default_base_savedir = '../../../trajectories_frames/saved/vqvae'
 
-    default_dataset = 'aimgs_48x48'
+    default_dataset = 'imgs_48x48'
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
@@ -249,8 +250,8 @@ if __name__ == '__main__':
     else:
         print('created new model')
 
-
     if not args.generate_results:
+        print("starting data loader")
         data_train_loader = DataLoader(FroggerDataset(train_data_dir,
                                        transform=transforms.ToTensor(), limit=args.num_train_limit),
                                        batch_size=32, shuffle=True)

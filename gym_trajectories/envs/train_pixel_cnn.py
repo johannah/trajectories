@@ -224,7 +224,7 @@ Test Loss"""%basename})
         print('loaded vqvae model from epoch %s'%vqvae_last_epoch)
 
 
-    base_orig_name = os.path.join(args.datadir, 'test_'+'aimgs_48x48')
+    base_orig_name = os.path.join(args.datadir, 'test_'+'imgs_48x48')
     base_save_name = os.path.join(args.datadir, 'test_'+basename+'e%05d'%epoch)
 
     if not args.generate_results:
