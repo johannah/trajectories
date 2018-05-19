@@ -5,7 +5,7 @@
 
 import matplotlib.pyplot as plt
 from imageio import imwrite
-from gym_trajectories.envs.road import RoadEnv
+from gym_trajectories.envs.road import RoadEnv, max_pixel, min_pixel
 import time
 import numpy as np
 from IPython import embed
@@ -21,10 +21,10 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 
-from road import max_pixel, min_pixel
-from gym_trajectories.envs.vq_vae_small import AutoEncoder, to_scalar
-from gym_trajectories.envs.conv_vae import Encoder, Decoder, VAE
-from gym_trajectories.envs.utils import discretized_mix_logistic_loss
+from gym_trajectories.envs.vqvae import AutoEncoder, to_scalar
+from gym_trajectories.envs.pixel_cnn import GatedPixelCNN
+
+from gym_trajectories.envs.utils import discretized_mix_logistic_loss, get_cuts
 from gym_trajectories.envs.utils import sample_from_discretized_mix_logistic
 
 
@@ -115,14 +115,61 @@ def get_vq_from_road(road_state):
 def get_none_from_roads(road_states):
     return road_states
 
+
 def get_vqvae_from_roads(road_states):
     print("precomputing vqvae road state estimates")
-    road_states = Variable(transforms.ToTensor()(road_states.transpose(1,2,0).astype(np.float32)))[:,None]
-    x_d, z_e_x, z_q_x, latents = vmodel(road_states)
-    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    vroad_state = x_tilde.data.numpy()
-    uvroad_states = ((0.5*vroad_state+0.5)*255).astype(np.uint8)[:,0]
-    return uvroad_states
+    road_states = Variable(transforms.ToTensor()((road_states-min_pixel)/float(max_pixel-min_pixel)).astype(np.float32))
+    #road_states = Variable(transforms.ToTensor()(road_states.transpose(1,2,0).astype(np.float32)))[:,None]
+    #x_d, z_e_x, z_q_x, latents = vmodel(road_states)
+    #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    #vroad_state = x_tilde.data.numpy()
+    #uvroad_states = ((0.5*vroad_state+0.5)*255).astype(np.uint8)[:,0]
+    #return uvroad_states
+
+def get_vqvae_pcnn_model(road_states, history_size):
+    # normalize data before putting into vqvae
+    broad_states = ((road_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None] 
+    # transofrms HxWxC in range 0,255 to CxHxW and range 0.0 to 1.0
+    nroad_states = Variable(torch.FloatTensor(broad_states))
+    episode_length = road_states.shape[0]
+    cuts = get_cuts(episode_length, 32)
+    for c, (s,e) in enumerate(cuts):
+        x_d, z_e_x, z_q_x, latents = vmodel(nroad_states[s:e])
+        if not c:
+            vqvae_latents = latents
+        else:
+            vqvae_latents = torch.cat((vqvae_latents, latents))
+    proad_states = road_states[:history_size]
+    latent_shape = (6,6)
+    cond_x = vqvae_latents[:history_size]
+    for frame_num in range(history_size, episode_length):
+        # predict next
+        pred_latents = pcnn_model.generate(spatial_cond=cond_x[None], shape=latent_shape, batch_size=1)
+
+        # add this predicted one to the tail
+        cond_x = torch.cat((cond_x[1:],pred_latents))
+
+        z_q_x = vmodel.embedding(pred_latents.view(pred_latents.size(0),-1))
+        z_q_x = z_q_x.view(pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
+        x_d = vmodel.decoder(z_q_x)
+
+        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+        pred = (((np.array(x_tilde.cpu().data)[0,0]+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
+        proad_states = np.vstack((proad_states,pred[None]))
+        ## input x is between 0 and 1
+        #f, ax = plt.subplots(1,3, figsize=(10,3))
+        #real = road_states[frame_num]
+        #ax[0].imshow(real, vmin=0, vmax=max_pixel)
+        #ax[0].set_title("original frame %s"%frame_num)
+        #ax[1].imshow(pred, vmin=0, vmax=max_pixel)
+        #ax[1].set_title("pred")
+        #ax[2].imshow((pred-real)**2, cmap='gray')
+        #ax[2].set_title("error")
+        #f.tight_layout()
+        #plt.savefig('imgs/frame%04d'%frame_num)
+        #plt.close()
+
+    return proad_states 
 
 def get_vae_from_roads(iroad_states):
     print("precomputing vae road state estimates")
@@ -150,7 +197,8 @@ def get_vae_from_roads(iroad_states):
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
-            n_playouts=1000, rollout_length=300, estimator=get_none_from_roads):
+            n_playouts=1000, rollout_length=300, estimator=get_none_from_roads, 
+            history_size=4):
         # use estimator for planning, if false, use env
         self.env = env
         self.rdn = random_state
@@ -164,7 +212,7 @@ class PMCTS(object):
         self.step = 0
         self.rollout_length = rollout_length
         self.nodes_seen = {}
-        self.road_map_ests = estimator(self.env.road_maps)
+        self.road_map_ests = estimator(self.env.road_maps, history_size)
 
     def get_children(self, node):
         print('node name', node.name)
@@ -475,8 +523,10 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
     #os.system(cmd)
 
 
-def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
-              n_playouts=300, max_rollout_length=50, model_type='vae', prob_fn=goal_node_probs_fn):
+def run_trace(seed=3432, ysize=48, xsize=48, level=6, 
+        max_goal_distance=100, n_playouts=300, 
+        max_rollout_length=50, model_type='none', 
+        prob_fn=goal_node_probs_fn, history_size=4):
 
     # log params
     results = {'decision_ts':[], 'dis_to_goal':[], 'actions':[],
@@ -492,12 +542,8 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
 
     mcts_rdn = np.random.RandomState(seed+1)
     do_render = False
-    if model_type == 'vae':
-        estimator=get_vae_from_roads
-        print("ESTIMATING USING VAE")
-    elif model_type=='vqvae':
-        estimator=get_vqvae_from_roads
-        print("ESTIMATING USING VQVAE")
+    if model_type == 'vqvae_pcnn_model':
+        estimator=get_vqvae_pcnn_model
     else:
         estimator=get_none_from_roads
 
@@ -506,7 +552,8 @@ def run_trace(seed=3432, ysize=40, xsize=40, level=5, max_goal_distance=100,
     #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
     #            n_playouts=n_playouts,rollout_length=max_rollout_length, estimator=estimator)
     pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=prob_fn,
-                n_playouts=n_playouts,rollout_length=max_rollout_length, estimator=estimator)
+                n_playouts=n_playouts, rollout_length=max_rollout_length, 
+                estimator=estimator, history_size=history_size)
 
     t = 0
     finished = False
@@ -573,23 +620,25 @@ if __name__ == "__main__":
     # this seems to work well
     #python roadway_pmcts.py --seed 45 -r 100  -p 100 -l 6
 
-    default_base_datadir = '../../trajectories_frames/saved/'
-    default_vqvae_model_loadpath = os.path.join(default_base_datadir, 'vqvae4layer_base_k512_z32_dse00025.pkl')
-    default_pcnn_model_loadpath = os.path.join(default_base_datadir, 'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl'
+    default_base_savedir = '../../trajectories_frames/saved/vqvae'
+    default_vqvae_model_loadpath = os.path.join(default_base_savedir, 
+            'vqvae4layer_base_k512_z32_dse00025.pkl')
+    default_pcnn_model_loadpath = os.path.join(default_base_savedir,
+            'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl')
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
     parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num traces to run')
-    parser.add_argument('-y', '--ysize', type=int, default=40, help='pixel size of game in y direction')
-    parser.add_argument('-x', '--xsize', type=int, default=40, help='pixel size of game in x direction')
+    parser.add_argument('-y', '--ysize', type=int, default=48, help='pixel size of game in y direction')
+    parser.add_argument('-x', '--xsize', type=int, default=48, help='pixel size of game in x direction')
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
     parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
-    parser.add_argument('-p', '--num_playouts', type=int, default=200, help='number of playouts for each step')
-    parser.add_argument('-r', '--rollout_steps', type=int, default=100, help='limit number of steps taken be random rollout')
+    parser.add_argument('-p', '--num_playouts', type=int, default=50, help='number of playouts for each step')
+    parser.add_argument('-r', '--rollout_steps', type=int, default=10, help='limit number of steps taken be random rollout')
     parser.add_argument('-vq', '--vqvae_model_loadpath', type=str, default=default_vqvae_model_loadpath)
     parser.add_argument('-pcnn', '--pcnn_model_loadpath', type=str, default=default_pcnn_model_loadpath)
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
-    parser.add_argument('-t', '--model_type', type=str, default="None")
+    parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
     parser.add_argument('--do_plot_error', action='store_true', default=True)
     parser.add_argument('--plot_playouts', action='store_true', default=False)
@@ -605,50 +654,48 @@ if __name__ == "__main__":
     dsize = 40
     nr_logistic_mix = 10
     probs_size = (2*nr_logistic_mix)+nr_logistic_mix
-    latent_size = 32
-
-
-    #if args.model_type == 'vae':
-    #    if args.model_loadpath == "None":
-    #        args.model_loadpath = default_vae_model_savepath
-
-    #    encoder = Encoder(latent_size)
-    #    decoder = Decoder(latent_size, probs_size)
-    #    vae = VAE(encoder, decoder, use_cuda)
-    #    if use_cuda:
-    #        vae = vae.cuda()
-    #        vae.encoder = vae.encoder.cuda()
-    #        vae.decoder = vae.decoder.cuda()
-
-    #    epoch = 0
-    #    if os.path.exists(args.model_loadpath):
-    #        vae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
-    #        vae.load_state_dict(vae_model_dict['state_dict'])
-    #        epoch = vae_model_dict['epoch']
-    #        print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
-    #    else:
-    #        print('could not find checkpoint at {}'.format(args.model_loadpath))
-    #        sys.exit()
 
     num_z = 32
     nr_logistic_mix = 10
     num_clusters = 512
 
     if use_cuda:
+        DEVICE = 'cuda'
         print("using gpu")
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=num_z).cuda()
+    else:
+        DEVICE = 'cpu'
 
-    else:
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix, num_clusters=num_clusters, encoder_output_size=num_z)
-    epoch = 0
-    if os.path.exists(args.model_loadpath):
-        vqvae_model_dict = torch.load(args.model_loadpath, map_location=lambda storage, loc: storage)
+    if os.path.exists(args.vqvae_model_loadpath):
+        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=num_z).to(DEVICE)
+        vqvae_model_dict = torch.load(args.vqvae_model_loadpath, map_location=lambda storage, loc: storage)
         vmodel.load_state_dict(vqvae_model_dict['state_dict'])
-        epoch = vqvae_model_dict['epoch']
-        print('loaded checkpoint at epoch: {} from {}'.format(epoch, args.model_loadpath))
+        epoch = vqvae_model_dict['epochs'][-1]
+        print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+                                               args.vqvae_model_loadpath))
     else:
-        print('could not find checkpoint at {}'.format(args.model_loadpath))
+        print('could not find checkpoint at {}'.format(args.vqvae_model_loadpath))
         sys.exit()
+
+
+
+    N_LAYERS = 15 # layers in pixelcnn
+    DIM = 256
+    history_size = 4
+    cond_size = history_size*DIM
+    if os.path.exists(args.pcnn_model_loadpath):
+        pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS, 
+                history_size, spatial_cond_size=cond_size).to(DEVICE)
+        pcnn_model_dict = torch.load(args.pcnn_model_loadpath, map_location=lambda storage, loc: storage)
+        pcnn_model.load_state_dict(pcnn_model_dict['state_dict'])
+        epoch = pcnn_model_dict['epochs'][-1]
+        print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+                                               args.pcnn_model_loadpath))
+    else:
+        print('could not find checkpoint at {}'.format(args.pcnn_model_loadpath))
+        sys.exit()
+
+
+
 
 
     goal_dis = args.max_goal_distance
@@ -661,7 +708,7 @@ if __name__ == "__main__":
     for i in range(args.num_episodes):
         r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
                       max_goal_distance=goal_dis, n_playouts=args.num_playouts,
-                      max_rollout_length=args.rollout_steps, model_type=args.model_type,prob_fn=prior)
+                      max_rollout_length=args.rollout_steps, model_type=args.model_type,prob_fn=prior, history_size=history_size)
 
         seed +=1
         all_results[seed] = r
