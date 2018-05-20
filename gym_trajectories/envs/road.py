@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('TkAgg')
+#matplotlib.use('TkAgg')
 import os
 from subprocess import Popen
 import matplotlib.pyplot as plt

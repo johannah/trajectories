@@ -8,8 +8,8 @@ from IPython import embed
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
-#from vqvae import AutoEncoder, to_scalar
-from vqvae_bigger import AutoEncoder, to_scalar
+from vqvae import AutoEncoder, to_scalar
+#from vqvae_bigger import AutoEncoder, to_scalar
 #from vqvae_small import AutoEncoder, to_scalar
 from torch.autograd import Variable
 import numpy as np
@@ -23,7 +23,7 @@ from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
 from utils import get_cuts
 from datasets import FroggerDataset
-from road import max_pixel, min_pixel
+from datasets import max_pixel, min_pixel
 
 def train(epoch,train_loader,do_use_cuda):
     print("starting epoch {}".format(epoch))
