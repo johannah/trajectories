@@ -126,8 +126,8 @@ if __name__ == '__main__':
     import argparse
     default_base_datadir = '../../../trajectories_frames/dataset/'
     default_base_savedir = '../../../trajectories_frames/saved/vqvae'
-    default_dataset = 'vqvae4layer_base_k512_z32_ds_e00026'
-    default_vqvae_loadname = 'vqvae4layer_base_k512_z32_dse00025.pkl'
+    default_dataset = 'vqvae4layer_base_k512_z32_ds_e00051'
+    default_vqvae_loadname = 'vqvae4layer_base_k512_z32_dse00050.pkl'
     parser = argparse.ArgumentParser(description='train pixel-cnn on vqvae latents')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-st', '--stop_early', action='store_true', default=False)
@@ -148,7 +148,7 @@ if __name__ == '__main__':
     if  args.stop_early:
         stop_early = 6
     else:
-        stop_early = 5554
+        stop_early = 50000554
     train_data_dir = os.path.join(args.datadir, 'train_'+args.dataset)
     test_data_dir =  os.path.join(args.datadir, 'test_'+args.dataset)
     use_cuda = args.cuda
@@ -176,7 +176,7 @@ if __name__ == '__main__':
     epochs = []
     epoch = 1
 
-    basename = '%s_%s_k%s_z%s'%(pcnn_model.name, args.model_savename,
+    basename = 'n%s_%s_k%s_z%s'%(pcnn_model.name, args.model_savename,
                                         args.num_k, args.num_z)
     port = args.port
     train_loss_logger = VisdomPlotLogger(

@@ -112,10 +112,13 @@ def generate_episodic_npz(data_loader,do_use_cuda,save_path,make_imgs=False):
     for batch_idx, (data, fpaths) in enumerate(data_loader):
         # batch idx must be exactly one episode
         #assert np.sum([fpaths[0][:-10] == f[:-10]  for f in fpaths]) == len(fpaths)
+
         episode_name = os.path.split(fpaths[0])[1].replace('_frame_00000.png', '.npz')
         episode_path = os.path.join(save_path,episode_name)
         if not os.path.exists(episode_path):
             print("episode: %s" %episode_name)
+            if not 'npz' in episode_name:
+                embed()
             start_time = time.time()
             if do_use_cuda:
                 x = Variable(data, requires_grad=False).cuda()
@@ -140,46 +143,8 @@ def generate_episodic_npz(data_loader,do_use_cuda,save_path,make_imgs=False):
                     ls = np.vstack((ls, latents.cpu().data.numpy()))
 
             # split episode into chunks that are reasonable
-            np.savez(episode_path,
-                                   z_e_x=zes.astype(np.float32), z_q_x=zqs.astype(np.float32), latents=ls.astype(np.int))
+            np.savez(episode_path, z_e_x=zes.astype(np.float32), z_q_x=zqs.astype(np.float32), latents=ls.astype(np.int))
 
-
-
-
-
-
-
-#def generate_results(model,data_loader,nr_logistic_mix,do_use_cuda):
-#    start_time = time.time()
-#    for batch_idx, (data, img_names) in enumerate(data_loader):
-#        if do_use_cuda:
-#            x = Variable(data, requires_grad=False).cuda()
-#        else:
-#            x = Variable(data, requires_grad=False)
-#
-#        x_d, z_e_x, z_q_x, latents = model(x)
-#        # z_e_x is output of encoder
-#        # z_q_x is input into decoder
-#        # latents is code book
-#        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-#        nx_tilde = x_tilde.cpu().data.numpy()
-#        nx_tilde = (0.5*nx_tilde+0.5)*255
-#        nx_tilde = nx_tilde.astype(np.uint8)
-#        embed()
-#        #vae_input = z_e_x.contiguous().view(z_e_x.shape[0],-1)
-#        #vqvae_rec_images = x_tilde.cpu().data.numpy()
-#        nz_q_x = z_q_x.contiguous().view(z_q_x.shape[0],-1).cpu().data.numpy()
-#        nlatents = latents.cpu().data.numpy()
-#        for ind, img_name in enumerate(img_names):
-#            #gen_img_name = img_name.replace('.png', 'vqvae_gen.png')
-#            #imwrite(gen_img_name, nx_tilde[ind][0])
-#            #latents_name = img_name.replace('.png', 'vqvae_latents.npy')
-#            z_q_x_name = img_name.replace('.png', 'vqvae_z_q_x.npy')
-#            np.save(z_q_x_name, nz_q_x[ind])
-#        if not batch_idx%10:
-#            print 'Generate batch_idx: {} Time: {}'.format(
-#                batch_idx, time.time() - start_time
-#            )
 
 if __name__ == '__main__':
     import argparse
