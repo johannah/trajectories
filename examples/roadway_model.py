@@ -104,100 +104,68 @@ def equal_node_probs_fn(state, state_index, env):
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
 
-def get_vq_from_road(road_state):
-    road_state = Variable(transforms.ToTensor()(road_state[:,:,None].astype(np.float32)))
-    x_d, z_e_x, z_q_x, latents = vmodel(road_state[None])
-    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    vroad_state = x_tilde[0,0].data.numpy()
-    uvroad_state = ((0.5*vroad_state+0.5)*255).astype(np.uint8)
-    return uvroad_state
-
-def get_none_from_roads(road_states):
-    return road_states
-
-
-def get_vqvae_from_roads(road_states):
-    print("precomputing vqvae road state estimates")
-    road_states = Variable(transforms.ToTensor()((road_states-min_pixel)/float(max_pixel-min_pixel)).astype(np.float32))
-    #road_states = Variable(transforms.ToTensor()(road_states.transpose(1,2,0).astype(np.float32)))[:,None]
-    #x_d, z_e_x, z_q_x, latents = vmodel(road_states)
-    #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-    #vroad_state = x_tilde.data.numpy()
-    #uvroad_states = ((0.5*vroad_state+0.5)*255).astype(np.uint8)[:,0]
-    #return uvroad_states
-
-def get_vqvae_pcnn_model(road_states, history_size):
+def get_vqvae_pcnn_model(state_index, cond_states, rollout_length):
+    print("starting vqvae pcnn for %s predictions" %rollout_length)
     # normalize data before putting into vqvae
-    broad_states = ((road_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None] 
+    st = time.time()
+    broad_states = ((cond_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None] 
     # transofrms HxWxC in range 0,255 to CxHxW and range 0.0 to 1.0
     nroad_states = Variable(torch.FloatTensor(broad_states))
-    episode_length = road_states.shape[0]
-    cuts = get_cuts(episode_length, 32)
-    for c, (s,e) in enumerate(cuts):
-        x_d, z_e_x, z_q_x, latents = vmodel(nroad_states[s:e])
-        if not c:
-            vqvae_latents = latents
-        else:
-            vqvae_latents = torch.cat((vqvae_latents, latents))
-    proad_states = road_states[:history_size]
+    x_d, z_e_x, z_q_x, cond_latents = vmodel(nroad_states)
+
     latent_shape = (6,6)
-    cond_x = vqvae_latents[:history_size]
-    for frame_num in range(history_size, episode_length):
+    _, ys, xs = cond_states.shape
+    proad_states = np.zeros((rollout_length,ys,xs)) 
+    rollout_length = proad_states.shape[0]
+    est = time.time()
+    print("condition prep time", round(est-st,2))
+    for ind in range(rollout_length):
+        frame_num = ind+state_index
+        pst = time.time()
+        print("predicting latent: %s" %frame_num)
         # predict next
-        pred_latents = pcnn_model.generate(spatial_cond=cond_x[None], shape=latent_shape, batch_size=1)
+        pred_latents = pcnn_model.generate(spatial_cond=cond_latents[None], shape=latent_shape, batch_size=1)
 
         # add this predicted one to the tail
-        cond_x = torch.cat((cond_x[1:],pred_latents))
+        cond_latents = torch.cat((cond_latents[1:],pred_latents))
 
-        z_q_x = vmodel.embedding(pred_latents.view(pred_latents.size(0),-1))
-        z_q_x = z_q_x.view(pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
-        x_d = vmodel.decoder(z_q_x)
+        if not ind:
+            all_pred_latents = pred_latents
+        else:
+            all_pred_latents = torch.cat((all_pred_latents, pred_latents))
 
-        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        pred = (((np.array(x_tilde.cpu().data)[0,0]+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
-        proad_states = np.vstack((proad_states,pred[None]))
-        ## input x is between 0 and 1
-        #f, ax = plt.subplots(1,3, figsize=(10,3))
-        #real = road_states[frame_num]
-        #ax[0].imshow(real, vmin=0, vmax=max_pixel)
-        #ax[0].set_title("original frame %s"%frame_num)
-        #ax[1].imshow(pred, vmin=0, vmax=max_pixel)
-        #ax[1].set_title("pred")
-        #ax[2].imshow((pred-real)**2, cmap='gray')
-        #ax[2].set_title("error")
-        #f.tight_layout()
-        #plt.savefig('imgs/frame%04d'%frame_num)
-        #plt.close()
+        ped = time.time()
+        print("latent pred time", round(ped-pst, 2))
 
-    return proad_states 
+    print("starting image")
+    ist = time.time()
+    # generate road
+    z_q_x = vmodel.embedding(all_pred_latents.view(all_pred_latents.size(0),-1))
+    z_q_x = z_q_x.view(all_pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
+    x_d = vmodel.decoder(z_q_x)
 
-def get_vae_from_roads(iroad_states):
-    print("precomputing vae road state estimates")
-    bs = 20
-    n,y,x = iroad_states.shape
-    road_states = Variable(transforms.ToTensor()(iroad_states.transpose(1,2,0).astype(np.float32)))[:,None]
-    nroad_states = np.zeros_like(iroad_states)
-    tilde_base = Variable(torch.from_numpy(np.zeros((bs,1,y,x))).float(),requires_grad=False)
-    input_base = Variable(torch.from_numpy(np.zeros((bs,1,y,x))).float(),requires_grad=False)
-
-    # treat each frame as a batch
-    for frame in range(n):
-        print('starting vae frame {}'.format(frame))
-        for b in range(bs):
-            input_base[b] = road_states[frame]
-        x_d = vae(input_base)
-        tilde_base = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
-        vroad = tilde_base.cpu().data.numpy()
-        uvroad = ((0.5*vroad+0.5)*255).astype(np.uint8)[:,0]
-        nonzero = np.count_nonzero(uvroad,axis=0)
-        max_ = np.max(uvroad, axis=0)
-        max_[nonzero<5] = 0
-        nroad_states[frame] = max_
-    return nroad_states
+    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
+    iet = time.time()
+    print("image pred time", round(iet-ist, 2))
+    #proad_states = np.vstack((proad_states,pred[None]))
+    ## input x is between 0 and 1
+    #f, ax = plt.subplots(1,3, figsize=(10,3))
+    #real = road_states[frame_num]
+    #ax[0].imshow(real, vmin=0, vmax=max_pixel)
+    #ax[0].set_title("original frame %s"%frame_num)
+    #ax[1].imshow(pred, vmin=0, vmax=max_pixel)
+    #ax[1].set_title("pred")
+    #ax[2].imshow((pred-real)**2, cmap='gray')
+    #ax[2].set_title("error")
+    #f.tight_layout()
+    #plt.savefig('imgs/frame%04d'%frame_num)
+    #plt.close()
+    return proad_states.astype(np.int)[:,0]
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
-            n_playouts=1000, rollout_length=300, estimator=get_none_from_roads, 
+            n_playouts=1000, rollout_length=20, estimator=get_vqvae_pcnn_model,
             history_size=4):
         # use estimator for planning, if false, use env
         self.env = env
@@ -212,7 +180,15 @@ class PMCTS(object):
         self.step = 0
         self.rollout_length = rollout_length
         self.nodes_seen = {}
-        self.road_map_ests = estimator(self.env.road_maps, history_size)
+        self.estimator = estimator
+        self.road_map_ests = np.zeros_like(self.env.road_maps)
+        self.history_size = history_size
+        # infil the first road maps
+        if self.estimator == 'none':
+            self.road_map_ests = self.env.road_maps
+        else:
+            self.road_map_ests[:self.history_size] = self.env.road_maps[:self.history_size]
+        # debuging none
 
     def get_children(self, node):
         print('node name', node.name)
@@ -223,6 +199,8 @@ class PMCTS(object):
     def playout(self, playout_num, state, state_index):
         # set new root of MCTS (we've taken a step in the real game)
         # only sets robot and goal states
+        # get future playouts from past states 
+
         logging.debug('+++++++++++++START PLAYOUT NUM: {} FOR STATE: {}++++++++++++++'.format(playout_num,state_index))
         init_state = state
         init_state_index = state_index
@@ -234,7 +212,8 @@ class PMCTS(object):
         frames.append((self.env.get_state_plot(state), self.env.get_state_plot(vstate)))
         # always use true state for first
         finished,value = self.env.set_state(state, state_index)
-        ry,rx = self.env.get_robot_state(state)
+
+       
         while True:
             ry,rx = self.env.get_robot_state(state)
             self.playout_states[state_index,ry,rx] = self.env.robot.color
@@ -282,9 +261,9 @@ class PMCTS(object):
     def rollout_from_state(self, state, state_index):
         logging.debug('-------------------------------------------')
         logging.debug('starting random rollout from state: {}'.format(state_index))
+
         # comes in already transformed
         rframes = []
-
         #try:
         if 1:
             finished,value = self.env.set_state(state, state_index)
@@ -325,10 +304,12 @@ class PMCTS(object):
 
 
     def get_action_probs(self, state, state_index, temp=1e-2):
+        print("-----------------------------------")
         # low temp -->> argmax
         self.nodes_seen[state_index] = []
         won = 0
-
+        logging.debug("starting playouts for state_index %s" %state_index)
+        # only run last rollout
         finished,value = self.env.set_state(state, state_index)
         all_frames = {}
         self.playout_states = np.zeros((self.env.max_steps, self.env.ysize, self.env.xsize))
@@ -352,11 +333,6 @@ class PMCTS(object):
                 won+=w
         else:
             logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
-            #embed()
-        #if state_index == 8:
-        #    print('state_index')
-        #    embed()
-
         self.env.set_state(state, state_index)
         act_visits = [(act,float(node.n_visits_)) for act, node in self.root.children_.items()]
         try:
@@ -382,14 +358,87 @@ class PMCTS(object):
             act = self.random_state.choice(acts, p=probs)
         return act, act_probs
 
+    def estimate_the_future(self, state, state_index):
+        #######################
+        # determine how different the predicted was from true for the last state
+        # pred_road should be all zero if no cars have been predicted
+        true_road_map = self.env.road_maps[state_index]
+        pred_road_map = self.road_map_ests[state_index]
+        # predict free where there was car  # bad
+        false_neg = (true_road_map*np.abs(true_road_map-pred_road_map))
+        false_neg[false_neg>0] = 1
+        false_neg_count = false_neg.sum()
+        # get local box
+        ry,rx = self.env.get_robot_state(state)
+        ys = self.env.ysize-1
+        xs = self.env.xsize-1
+        bs = 5
+        lby = min(ry+bs, ys)
+        lbx = min(rx+bs, xs)
+        iby = max(ry-bs, 0)
+        ibx = max(rx-bs, 0)
+        print("box inds")
+        print(iby, ry, lby)
+        print(ibx, rx, lbx)
+        
+        local_false_neg_count = np.sum(false_neg[iby:lby, ibx:lbx])
+ 
+        print('false neg is', false_neg_count)
+        # false_neg_count is ~ 25 when the pcnn predicts all zeros
+        print('local false neg is', local_false_neg_count)
+
+        #f,a = plt.subplots(1,4)
+        #a[0].imshow(true_road_map); a[0].set_title('true'); 
+        #a[1].imshow(pred_road_map);  a[1].set_title('prev pred')
+        #a[2].imshow(false_neg); a[3].imshow(np.abs(true_road_map-pred_road_map));  
+        #plt.show()
+        #embed()
+
+        if (local_false_neg_count > 0) or (false_neg_count > 10) :
+            print("running all rollouts")
+            # ending index is noninclusive
+            # starting index is inclusive
+            est_from = state_index+1
+            pred_length = self.rollout_length
+        else:
+            print("running one rollout")
+            # only run last rollout that was not finished
+            est_from = state_index+self.rollout_length+1
+            pred_length = 1
+
+        # put in the true road map for this step
+        self.road_map_ests[state_index] = true_road_map
+        s = range(self.road_map_ests.shape[0])
+        est_to = est_from + pred_length
+        cond_to = est_from
+        # end of conditioning
+        cond_from = cond_to-self.history_size
+        print("state index", state_index)
+        print("condition", cond_from, cond_to)
+        print(s[cond_from:cond_to])
+        print("estimate", est_from, est_to)
+        print(s[est_from:est_to])
+
+        # can use past frames because we add them as we go
+        cond_frames = self.road_map_ests[cond_from:cond_to]
+        ests = self.estimator(state_index, cond_frames, pred_length)
+        self.road_map_ests[est_from:est_to] = ests
+        return ests, range(est_from, est_to)
+
+
     def get_best_action(self, state, state_index):
         logging.info("mcts starting search for action in state: {}".format(state_index))
         orig_state = deepcopy(state)
         self.env.set_state(state, state_index)
+        if self.estimator == 'none':
+            state_ests,state_indexes = [], []
+        else:
+            state_ests, state_indexes = self.estimate_the_future(state, state_index)
+
         acts, probs, playout_frames = self.get_action_probs(state, state_index, temp=1e-3)
         act = self.rdn.choice(acts, p=probs)
         logging.info("mcts chose action {} in state: {}".format(act,state_index))
-        return act, probs, playout_frames, self.playout_states
+        return act, probs, playout_frames, self.playout_states, state_ests, state_indexes
 
     def update_tree_move(self, action):
         # keep previous info
@@ -525,13 +574,14 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
 
 def run_trace(seed=3432, ysize=48, xsize=48, level=6, 
         max_goal_distance=100, n_playouts=300, 
-        max_rollout_length=50, model_type='none', 
-        prob_fn=goal_node_probs_fn, history_size=4):
+        max_rollout_length=50, estimator='none', 
+        prob_fn=goal_node_probs_fn, history_size=4, 
+        do_render=False):
 
     # log params
-    results = {'decision_ts':[], 'dis_to_goal':[], 'actions':[],
+    results = {'decision_ts':[],'decision_sts':[], 'dis_to_goal':[], 'actions':[],
                'ysize':ysize, 'xsize':xsize, 'level':level,
-               'n_playouts':n_playouts, 'seed':seed,
+               'n_playouts':n_playouts, 'seed':seed, 'ests':[], 'est_inds':[],
                'max_rollout_length':max_rollout_length}
 
     states = []
@@ -541,21 +591,11 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance)
 
     mcts_rdn = np.random.RandomState(seed+1)
-    do_render = False
-    if model_type == 'vqvae_pcnn_model':
-        estimator=get_vqvae_pcnn_model
-    else:
-        estimator=get_none_from_roads
-
-    #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=equal_node_probs_fn,
-    #            n_playouts=n_playouts,rollout_length=max_rollout_length)
-    #pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=goal_node_probs_fn,
-    #            n_playouts=n_playouts,rollout_length=max_rollout_length, estimator=estimator)
     pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=prob_fn,
                 n_playouts=n_playouts, rollout_length=max_rollout_length, 
-                estimator=estimator, history_size=history_size)
+                estimator=estimator,history_size=history_size)
 
-    t = 0
+    t = history_size
     finished = False
     # draw initial state
     if do_render:
@@ -570,13 +610,17 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
 
         # search for best action
         st = time.time()
-        action, action_probs, playout_frames, playout_states = pmcts.get_best_action(deepcopy(state), t)
+        action, action_probs, playout_frames, playout_states, state_ests, state_est_indexes = pmcts.get_best_action(deepcopy(state), t)
         frames.append((true_env.get_state_plot(state), playout_frames))
         sframes.append((t, (ry,rx),  playout_states))
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
 
+        results['ests'].append(state_ests)
+        results['est_inds'].append(state_est_indexes)
+        print("decision took %s seconds"%round(et-st, 2))
+        results['decision_sts'].append(st)
         results['decision_ts'].append(et-st)
         results['dis_to_goal'].append(current_goal_distance)
         results['actions'].append(action)
@@ -610,7 +654,7 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     plt.close()
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.plot_playouts:
-        plot_playout_scatters(true_env, 'trials', model_type, seed, reward, sframes,
+        plot_playout_scatters(true_env, 'trials', str(estimator), seed, reward, sframes,
                           pmcts.road_map_ests, pmcts.rollout_length,
                           t,plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4)
     return results
@@ -621,8 +665,10 @@ if __name__ == "__main__":
     #python roadway_pmcts.py --seed 45 -r 100  -p 100 -l 6
 
     default_base_savedir = '../../trajectories_frames/saved/vqvae'
+    # train loss .0488, test_loss sum .04 epoch 25
     default_vqvae_model_loadpath = os.path.join(default_base_savedir, 
             'vqvae4layer_base_k512_z32_dse00025.pkl')
+    # train loss of .39, epoch 31
     default_pcnn_model_loadpath = os.path.join(default_base_savedir,
             'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl')
     parser = argparse.ArgumentParser()
@@ -640,6 +686,7 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
+    parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--do_plot_error', action='store_true', default=True)
     parser.add_argument('--plot_playouts', action='store_true', default=False)
     parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
@@ -665,38 +712,36 @@ if __name__ == "__main__":
     else:
         DEVICE = 'cpu'
 
-    if os.path.exists(args.vqvae_model_loadpath):
-        vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=num_z).to(DEVICE)
-        vqvae_model_dict = torch.load(args.vqvae_model_loadpath, map_location=lambda storage, loc: storage)
-        vmodel.load_state_dict(vqvae_model_dict['state_dict'])
-        epoch = vqvae_model_dict['epochs'][-1]
-        print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
-                                               args.vqvae_model_loadpath))
-    else:
-        print('could not find checkpoint at {}'.format(args.vqvae_model_loadpath))
-        sys.exit()
-
-
-
     N_LAYERS = 15 # layers in pixelcnn
     DIM = 256
     history_size = 4
     cond_size = history_size*DIM
-    if os.path.exists(args.pcnn_model_loadpath):
-        pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS, 
-                history_size, spatial_cond_size=cond_size).to(DEVICE)
-        pcnn_model_dict = torch.load(args.pcnn_model_loadpath, map_location=lambda storage, loc: storage)
-        pcnn_model.load_state_dict(pcnn_model_dict['state_dict'])
-        epoch = pcnn_model_dict['epochs'][-1]
-        print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
-                                               args.pcnn_model_loadpath))
-    else:
-        print('could not find checkpoint at {}'.format(args.pcnn_model_loadpath))
-        sys.exit()
+
+    if args.model_type == 'vqvae_pcnn_model':
+        if os.path.exists(args.vqvae_model_loadpath):
+            vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=num_z).to(DEVICE)
+            vqvae_model_dict = torch.load(args.vqvae_model_loadpath, map_location=lambda storage, loc: storage)
+            vmodel.load_state_dict(vqvae_model_dict['state_dict'])
+            epoch = vqvae_model_dict['epochs'][-1]
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+                                                   args.vqvae_model_loadpath))
+        else:
+            print('could not find checkpoint at {}'.format(args.vqvae_model_loadpath))
+            sys.exit()
 
 
 
-
+        if os.path.exists(args.pcnn_model_loadpath):
+            pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS, 
+                    history_size, spatial_cond_size=cond_size).to(DEVICE)
+            pcnn_model_dict = torch.load(args.pcnn_model_loadpath, map_location=lambda storage, loc: storage)
+            pcnn_model.load_state_dict(pcnn_model_dict['state_dict'])
+            epoch = pcnn_model_dict['epochs'][-1]
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+                                                   args.pcnn_model_loadpath))
+        else:
+            print('could not find checkpoint at {}'.format(args.pcnn_model_loadpath))
+            sys.exit()
 
     goal_dis = args.max_goal_distance
     if args.debug:
@@ -706,11 +751,18 @@ if __name__ == "__main__":
 
     all_results = {'args':args}
     for i in range(args.num_episodes):
+        print("STARTING EPISODE %s seed %s" %(i,seed))
+        st = time.time()
         r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
                       max_goal_distance=goal_dis, n_playouts=args.num_playouts,
-                      max_rollout_length=args.rollout_steps, model_type=args.model_type,prob_fn=prior, history_size=history_size)
+                      max_rollout_length=args.rollout_steps, 
+                      prob_fn=prior, estimator=args.model_type,
+                      history_size=history_size, do_render=args.render)
 
         seed +=1
+        et = time.time()
+        r['full_end_time'] = et
+        r['full_start_time'] = st
         all_results[seed] = r
         ffile = open('all_results_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(args.model_type, args.num_playouts, args.rollout_steps,args.prior_fn), 'w')
         pickle.dump(all_results,ffile)
