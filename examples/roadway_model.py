@@ -180,7 +180,7 @@ class PMCTS(object):
         self.step = 0
         self.rollout_length = rollout_length
         self.nodes_seen = {}
-        self.estimator = estimator
+        self.estimator = eval('get_'+estimator) # get_vqvae_pcnn_model
         self.road_map_ests = np.zeros_like(self.env.road_maps)
         self.history_size = history_size
         # infil the first road maps
@@ -394,7 +394,7 @@ class PMCTS(object):
         #plt.show()
         #embed()
 
-        if (local_false_neg_count > 0) or (false_neg_count > 10) :
+        if (local_false_neg_count > 0) or (false_neg_count > 15) :
             print("running all rollouts")
             # ending index is noninclusive
             # starting index is inclusive
@@ -406,10 +406,14 @@ class PMCTS(object):
             est_from = state_index+self.rollout_length+1
             pred_length = 1
 
+
         # put in the true road map for this step
         self.road_map_ests[state_index] = true_road_map
         s = range(self.road_map_ests.shape[0])
+        # limit prediction lengths
+        est_from = min(self.road_map_ests.shape[0], est_from)
         est_to = est_from + pred_length
+        est_to = min(self.road_map_ests.shape[0], est_to)
         cond_to = est_from
         # end of conditioning
         cond_from = cond_to-self.history_size
@@ -418,12 +422,15 @@ class PMCTS(object):
         print(s[cond_from:cond_to])
         print("estimate", est_from, est_to)
         print(s[est_from:est_to])
-
-        # can use past frames because we add them as we go
-        cond_frames = self.road_map_ests[cond_from:cond_to]
-        ests = self.estimator(state_index, cond_frames, pred_length)
-        self.road_map_ests[est_from:est_to] = ests
-        return ests, range(est_from, est_to)
+        rinds = range(est_from, est_to)
+        if not len(rinds):
+            ests = []
+        else:
+            # can use past frames because we add them as we go
+            cond_frames = self.road_map_ests[cond_from:cond_to]
+            ests = self.estimator(state_index, cond_frames, pred_length)
+            self.road_map_ests[est_from:est_to] = ests
+        return ests, rinds
 
 
     def get_best_action(self, state, state_index):
@@ -588,14 +595,18 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     # restart at same position every time
     rdn = np.random.RandomState(seed)
     true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
-    state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance)
+    start_state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance)
+
+    # fast forward history steps so agent observes 4
+    t = history_size
+    state = [start_state[0], start_state[1], true_env.road_maps[t]]
+    true_env.set_state(state)
 
     mcts_rdn = np.random.RandomState(seed+1)
     pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=prob_fn,
                 n_playouts=n_playouts, rollout_length=max_rollout_length, 
                 estimator=estimator,history_size=history_size)
 
-    t = history_size
     finished = False
     # draw initial state
     if do_render:
@@ -749,24 +760,42 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    all_results = {'args':args}
+    fname = 'all_results_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(
+                                    args.model_type, 
+                                    args.num_playouts, 
+                                    args.rollout_steps,args.prior_fn)
+
+    ffile = open(fname, 'a+')
+    if os.path.exists(fname):
+        print('loading previous results from %s' %ffile)
+        try:
+            all_results = pickle.load(ffile)
+            print('found %s runs in file' %len(all_results.keys())-1)
+        except EOFError, e:
+            print('unable to load ffile:%s' %ffile)
+            all_results = {'args':args}
+    else:
+        all_results = {'args':args}
+
     for i in range(args.num_episodes):
         print("STARTING EPISODE %s seed %s" %(i,seed))
-        st = time.time()
-        r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
-                      max_goal_distance=goal_dis, n_playouts=args.num_playouts,
-                      max_rollout_length=args.rollout_steps, 
-                      prob_fn=prior, estimator=args.model_type,
-                      history_size=history_size, do_render=args.render)
+        if seed in all_results.keys():
+            print("seed %s already in results - skipping" %seed)
+            seed +=1
+        else:
+            st = time.time()
+            r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
+                          max_goal_distance=goal_dis, n_playouts=args.num_playouts,
+                          max_rollout_length=args.rollout_steps, 
+                          prob_fn=prior, estimator=args.model_type,
+                          history_size=history_size, do_render=args.render)
 
-        seed +=1
-        et = time.time()
-        r['full_end_time'] = et
-        r['full_start_time'] = st
-        all_results[seed] = r
-        ffile = open('all_results_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(args.model_type, args.num_playouts, args.rollout_steps,args.prior_fn), 'w')
-        pickle.dump(all_results,ffile)
-        ffile.close()
+            et = time.time()
+            r['full_end_time'] = et
+            r['full_start_time'] = st
+            all_results[seed] = r
+            pickle.dump(all_results,ffile)
+            seed +=1
     embed()
     print("FINISHED")
 
