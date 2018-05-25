@@ -81,7 +81,6 @@ def test(epoch,test_loader,DEVICE,history_size,save_img_path=None):
                 np.mean(test_loss),
                 time.time() - start_time
             )
-
     ## make image from the last example
     ep = 0
     ep_name = os.path.split(dname[ep])[1].replace('.npz', '_frame_%05d.png'%i)
@@ -164,6 +163,7 @@ if __name__ == '__main__':
     history_size = 4
     cond_size = history_size*DIM
     if use_cuda:
+        print("using cuda")
         DEVICE = torch.device('cuda')
     else:
         DEVICE = torch.device('cpu')
