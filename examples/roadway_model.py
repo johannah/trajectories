@@ -106,8 +106,9 @@ def equal_node_probs_fn(state, state_index, env):
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
 
-def get_vqvae_pcnn_model(state_index, est_from, true_states, cond_states, rollout_length):
-    print("starting vqvae pcnn for %s predictions" %rollout_length)
+def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
+    rollout_length = len(est_inds)
+    print("starting vqvae pcnn for %s predictions" %len(est_inds))
     # normalize data before putting into vqvae
     st = time.time()
     broad_states = ((cond_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None]
@@ -117,12 +118,9 @@ def get_vqvae_pcnn_model(state_index, est_from, true_states, cond_states, rollou
 
     latent_shape = (6,6)
     _, ys, xs = cond_states.shape
-    proad_states = np.zeros((rollout_length,ys,xs))
-    rollout_length = proad_states.shape[0]
     est = time.time()
     print("condition prep time", round(est-st,2))
-    for ind in range(rollout_length):
-        frame_num = ind+est_from
+    for ind, frame_num  in enumerate(est_inds):
         pst = time.time()
         print("predicting latent: %s" %frame_num)
         # predict next
@@ -139,6 +137,7 @@ def get_vqvae_pcnn_model(state_index, est_from, true_states, cond_states, rollou
         ped = time.time()
         print("latent pred time", round(ped-pst, 2))
 
+    proad_states = np.zeros((rollout_length,ys,xs))
     print("starting image")
     ist = time.time()
     # generate road
@@ -153,10 +152,11 @@ def get_vqvae_pcnn_model(state_index, est_from, true_states, cond_states, rollou
     return proad_states.astype(np.int)[:,0]
 
 
-def get_none_model(state_index, est_from, true_states, cond_states, rollout_length):
+def get_none_model(state_index, est_inds, true_states, cond_states):
+    rollout_length = len(est_inds)
     print("starting none %s predictions" %rollout_length)
     # normalize data before putting into vqvae
-    return true_states[est_from:est_from+rollout_length]
+    return true_states[est_inds]
 
 
 class PMCTS(object):
@@ -410,43 +410,47 @@ class PMCTS(object):
             pred_length = 1
 
 
-        # put in the true road map for this step
-        self.road_map_ests[state_index] = self.env.road_maps[state_index]
-        s = range(self.road_map_ests.shape[0])
-        # limit prediction lengths
-        est_from = min(self.road_map_ests.shape[0], est_from)
-        est_to = est_from + pred_length
-        est_to = min(self.road_map_ests.shape[0], est_to)
-        cond_to = est_from
-        # end of conditioning
-        cond_from = cond_to-self.history_size
-        print("state index", state_index)
-        print("condition", cond_from, cond_to)
-        print(s[cond_from:cond_to])
-        print("estimate", est_from, est_to)
-        print(s[est_from:est_to])
-        rinds = range(est_from, est_to)
-        if not len(rinds):
-            ests = []
-        else:
-            # can use past frames because we add them as we go
-            cond_frames = self.road_map_ests[cond_from:cond_to]
-            ests = self.estimator(state_index, est_from, self.env.road_maps, cond_frames, pred_length)
-            self.road_map_ests[est_from:est_to] = ests
+        try:
+            # put in the true road map for this step
+            self.road_map_ests[state_index] = self.env.road_maps[state_index]
+            s = range(self.road_map_ests.shape[0])
+            # limit prediction lengths
+            est_from = min(self.road_map_ests.shape[0], est_from)
+            est_to = est_from + pred_length
+            est_to = min(self.road_map_ests.shape[0], est_to)
+            cond_to = est_from
+            # end of conditioning
+            cond_from = cond_to-self.history_size
+            print("state index", state_index)
+            print("condition", cond_from, cond_to)
+            print(s[cond_from:cond_to])
+            print("estimate", est_from, est_to)
+            print(s[est_from:est_to])
+            rinds = range(est_from, est_to)
+            if not len(rinds):
+                ests = []
+            else:
+                # can use past frames because we add them as we go
+                cond_frames = self.road_map_ests[cond_from:cond_to]
+                ests = self.estimator(state_index, rinds, self.env.road_maps, cond_frames)
+                self.road_map_ests[est_from:est_to] = ests
 
-        false_negs = []
-        for xx, i in enumerate(rinds):
-            fnc,fn = self.get_false_neg_counts(i)
-            false_negs.append(fnc)
-            #name = "rollout_length%02d_state%03d_frame_num%03d_step%02d.png"%(self.rollout_length,state_index,i, xx)
-            #f, ax = plt.subplots(1,3)
-            #ax[0].imshow(self.env.road_maps[i], origin='lower')
-            #ax[0].set_title('true frame %s' %i)
-            #ax[1].imshow(self.road_map_ests[i], origin='lower')
-            #ax[1].set_title('pred step %s' %xx)
-            #ax[2].imshow(fn, origin='lower')
-            #ax[2].set_title('false negs %s'%fnc)
-            #plt.savefig(name)
+            false_negs = []
+            for xx, i in enumerate(rinds):
+                fnc,fn = self.get_false_neg_counts(i)
+                false_negs.append(fnc)
+                #name = "rollout_length%02d_state%03d_frame_num%03d_step%02d.png"%(self.rollout_length,state_index,i, xx)
+                #f, ax = plt.subplots(1,3)
+                #ax[0].imshow(self.env.road_maps[i], origin='lower')
+                #ax[0].set_title('true frame %s' %i)
+                #ax[1].imshow(self.road_map_ests[i], origin='lower')
+                #ax[1].set_title('pred step %s' %xx)
+                #ax[2].imshow(fn, origin='lower')
+                #ax[2].set_title('false negs %s'%fnc)
+                #plt.savefig(name)
+        except Exception, e:
+            print(e)
+            embed()
         return false_negs, rinds
 
 
