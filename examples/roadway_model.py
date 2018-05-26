@@ -3,6 +3,8 @@
 # http://mcts.ai/pubs/mcts-survey-master.pdf
 # https://github.com/junxiaosong/AlphaZero_Gomoku
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from imageio import imwrite
 from gym_trajectories.envs.road import RoadEnv, max_pixel, min_pixel
@@ -108,14 +110,14 @@ def get_vqvae_pcnn_model(state_index, cond_states, rollout_length):
     print("starting vqvae pcnn for %s predictions" %rollout_length)
     # normalize data before putting into vqvae
     st = time.time()
-    broad_states = ((cond_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None] 
+    broad_states = ((cond_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None]
     # transofrms HxWxC in range 0,255 to CxHxW and range 0.0 to 1.0
-    nroad_states = Variable(torch.FloatTensor(broad_states))
+    nroad_states = Variable(torch.FloatTensor(broad_states)).to(DEVICE)
     x_d, z_e_x, z_q_x, cond_latents = vmodel(nroad_states)
 
     latent_shape = (6,6)
     _, ys, xs = cond_states.shape
-    proad_states = np.zeros((rollout_length,ys,xs)) 
+    proad_states = np.zeros((rollout_length,ys,xs))
     rollout_length = proad_states.shape[0]
     est = time.time()
     print("condition prep time", round(est-st,2))
@@ -199,7 +201,7 @@ class PMCTS(object):
     def playout(self, playout_num, state, state_index):
         # set new root of MCTS (we've taken a step in the real game)
         # only sets robot and goal states
-        # get future playouts from past states 
+        # get future playouts from past states
 
         logging.debug('+++++++++++++START PLAYOUT NUM: {} FOR STATE: {}++++++++++++++'.format(playout_num,state_index))
         init_state = state
@@ -213,7 +215,7 @@ class PMCTS(object):
         # always use true state for first
         finished,value = self.env.set_state(state, state_index)
 
-       
+
         while True:
             ry,rx = self.env.get_robot_state(state)
             self.playout_states[state_index,ry,rx] = self.env.robot.color
@@ -358,17 +360,20 @@ class PMCTS(object):
             act = self.random_state.choice(acts, p=probs)
         return act, act_probs
 
-    def estimate_the_future(self, state, state_index):
-        #######################
-        # determine how different the predicted was from true for the last state
-        # pred_road should be all zero if no cars have been predicted
+
+    def get_false_neg_counts(self, state_index):
         true_road_map = self.env.road_maps[state_index]
         pred_road_map = self.road_map_ests[state_index]
         # predict free where there was car  # bad
         false_neg = (true_road_map*np.abs(true_road_map-pred_road_map))
         false_neg[false_neg>0] = 1
         false_neg_count = false_neg.sum()
-        # get local box
+        return false_neg_count, false_neg
+
+    def get_local_false_neg_counts(self, state, state_index):
+        true_road_map = self.env.road_maps[state_index]
+        pred_road_map = self.road_map_ests[state_index]
+
         ry,rx = self.env.get_robot_state(state)
         ys = self.env.ysize-1
         xs = self.env.xsize-1
@@ -377,22 +382,26 @@ class PMCTS(object):
         lbx = min(rx+bs, xs)
         iby = max(ry-bs, 0)
         ibx = max(rx-bs, 0)
-        print("box inds")
-        print(iby, ry, lby)
-        print(ibx, rx, lbx)
-        
+
+        true_road_map = self.env.road_maps[state_index]
+        pred_road_map = self.road_map_ests[state_index]
+        # predict free where there was car  # bad
+        false_neg = (true_road_map*np.abs(true_road_map-pred_road_map))
+        false_neg[false_neg>0] = 1
+        false_neg_count = false_neg.sum()
         local_false_neg_count = np.sum(false_neg[iby:lby, ibx:lbx])
- 
+        return local_false_neg_count
+
+    def estimate_the_future(self, state, state_index):
+        #######################
+        # determine how different the predicted was from true for the last state
+        # pred_road should be all zero if no cars have been predicted
+        false_neg_count, false_neg = self.get_false_neg_counts(state_index)
+        local_false_neg_count = self.get_local_false_neg_counts(state, state_index)
+
         print('false neg is', false_neg_count)
         # false_neg_count is ~ 25 when the pcnn predicts all zeros
         print('local false neg is', local_false_neg_count)
-
-        #f,a = plt.subplots(1,4)
-        #a[0].imshow(true_road_map); a[0].set_title('true'); 
-        #a[1].imshow(pred_road_map);  a[1].set_title('prev pred')
-        #a[2].imshow(false_neg); a[3].imshow(np.abs(true_road_map-pred_road_map));  
-        #plt.show()
-        #embed()
 
         if (local_false_neg_count > 0) or (false_neg_count > 15) :
             print("running all rollouts")
@@ -408,7 +417,7 @@ class PMCTS(object):
 
 
         # put in the true road map for this step
-        self.road_map_ests[state_index] = true_road_map
+        self.road_map_ests[state_index] = self.env.road_maps[state_index]
         s = range(self.road_map_ests.shape[0])
         # limit prediction lengths
         est_from = min(self.road_map_ests.shape[0], est_from)
@@ -430,7 +439,21 @@ class PMCTS(object):
             cond_frames = self.road_map_ests[cond_from:cond_to]
             ests = self.estimator(state_index, cond_frames, pred_length)
             self.road_map_ests[est_from:est_to] = ests
-        return ests, rinds
+
+        false_negs = []
+        for xx, i in enumerate(rinds):
+            fnc,fn = self.get_false_neg_counts(i)
+            false_negs.append(fnc)
+            #name = "rollout_length%02d_state%03d_frame_num%03d_step%02d.png"%(self.rollout_length,state_index,i, xx)
+            #f, ax = plt.subplots(1,3)
+            #ax[0].imshow(self.env.road_maps[i], origin='lower')
+            #ax[0].set_title('true frame %s' %i)
+            #ax[1].imshow(self.road_map_ests[i], origin='lower')
+            #ax[1].set_title('pred step %s' %xx)
+            #ax[2].imshow(fn, origin='lower')
+            #ax[2].set_title('false negs %s'%fnc)
+            #plt.savefig(name)
+        return fnc, rinds
 
 
     def get_best_action(self, state, state_index):
@@ -440,12 +463,12 @@ class PMCTS(object):
         if self.estimator == 'none':
             state_ests,state_indexes = [], []
         else:
-            state_ests, state_indexes = self.estimate_the_future(state, state_index)
+            future_false_negs, state_indexes = self.estimate_the_future(state, state_index)
 
         acts, probs, playout_frames = self.get_action_probs(state, state_index, temp=1e-3)
         act = self.rdn.choice(acts, p=probs)
         logging.info("mcts chose action {} in state: {}".format(act,state_index))
-        return act, probs, playout_frames, self.playout_states, state_ests, state_indexes
+        return act, probs, playout_frames, self.playout_states, future_false_negs, state_indexes
 
     def update_tree_move(self, action):
         # keep previous info
@@ -579,10 +602,10 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
     #os.system(cmd)
 
 
-def run_trace(seed=3432, ysize=48, xsize=48, level=6, 
-        max_goal_distance=100, n_playouts=300, 
-        max_rollout_length=50, estimator='none', 
-        prob_fn=goal_node_probs_fn, history_size=4, 
+def run_trace(seed=3432, ysize=48, xsize=48, level=6,
+        max_goal_distance=100, n_playouts=300,
+        max_rollout_length=50, estimator='none',
+        prob_fn=goal_node_probs_fn, history_size=4,
         do_render=False):
 
     # log params
@@ -600,11 +623,11 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     # fast forward history steps so agent observes 4
     t = history_size
     state = [start_state[0], start_state[1], true_env.road_maps[t]]
-    true_env.set_state(state)
+    true_env.set_state(state, t)
 
     mcts_rdn = np.random.RandomState(seed+1)
     pmcts = PMCTS(env=deepcopy(true_env),random_state=mcts_rdn,node_probs_fn=prob_fn,
-                n_playouts=n_playouts, rollout_length=max_rollout_length, 
+                n_playouts=n_playouts, rollout_length=max_rollout_length,
                 estimator=estimator,history_size=history_size)
 
     finished = False
@@ -676,12 +699,32 @@ if __name__ == "__main__":
     #python roadway_pmcts.py --seed 45 -r 100  -p 100 -l 6
 
     default_base_savedir = '../../trajectories_frames/saved/vqvae'
-    # train loss .0488, test_loss sum .04 epoch 25
-    default_vqvae_model_loadpath = os.path.join(default_base_savedir, 
-            'vqvae4layer_base_k512_z32_dse00025.pkl')
+
+    # false negs over 10 steps  for seed 35 [17, 21, 26, 25, 32, 40, 38, 38, 39, 41]
+    #vq_name = 'vqvae4layer_base_k512_z32_dse00025.pkl'
+    # train loss .034, test_loss sum .0355 epoch 51
+    vq_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
+    default_vqvae_model_loadpath = os.path.join(default_base_savedir,
+            vq_name)
     # train loss of .39, epoch 31
+    #pcnn_name = 'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl'
+    # false negs over 10 steps for seed 35
+    # [11, 13, 14, 12, 19, 27, 30, 35, 38, 37]
+    # [10, 12, 13, 12, 19, 27, 30, 33, 36, 38]
+    # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    # train loss of 1.09, test loss 1.25 epoch 10
+    pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
+    # false negs over 10 steps for seed 35
+    # [13, 13, 16, 13, 23, 29, 31, 36, 35, 37]
+    # [12, 12, 15, 16, 23, 29, 31, 33, 35, 38]
+    # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    # [27, 23, 26, 27, 30, 29, 32, 32, 26, 26]
+    #pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00026.pkl'
     default_pcnn_model_loadpath = os.path.join(default_base_savedir,
-            'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl')
+             pcnn_name)
+
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
     parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num traces to run')
@@ -690,7 +733,7 @@ if __name__ == "__main__":
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
     parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
     parser.add_argument('-p', '--num_playouts', type=int, default=50, help='number of playouts for each step')
-    parser.add_argument('-r', '--rollout_steps', type=int, default=10, help='limit number of steps taken be random rollout')
+    parser.add_argument('-r', '--rollout_steps', type=int, default=5, help='limit number of steps taken be random rollout')
     parser.add_argument('-vq', '--vqvae_model_loadpath', type=str, default=default_vqvae_model_loadpath)
     parser.add_argument('-pcnn', '--pcnn_model_loadpath', type=str, default=default_pcnn_model_loadpath)
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
@@ -734,7 +777,7 @@ if __name__ == "__main__":
             vqvae_model_dict = torch.load(args.vqvae_model_loadpath, map_location=lambda storage, loc: storage)
             vmodel.load_state_dict(vqvae_model_dict['state_dict'])
             epoch = vqvae_model_dict['epochs'][-1]
-            print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch,
                                                    args.vqvae_model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.vqvae_model_loadpath))
@@ -743,12 +786,12 @@ if __name__ == "__main__":
 
 
         if os.path.exists(args.pcnn_model_loadpath):
-            pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS, 
+            pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS,
                     history_size, spatial_cond_size=cond_size).to(DEVICE)
             pcnn_model_dict = torch.load(args.pcnn_model_loadpath, map_location=lambda storage, loc: storage)
             pcnn_model.load_state_dict(pcnn_model_dict['state_dict'])
             epoch = pcnn_model_dict['epochs'][-1]
-            print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch,
                                                    args.pcnn_model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.pcnn_model_loadpath))
@@ -761,18 +804,20 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.INFO)
 
     fname = 'all_results_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(
-                                    args.model_type, 
-                                    args.num_playouts, 
+                                    args.model_type,
+                                    args.num_playouts,
                                     args.rollout_steps,args.prior_fn)
 
-    ffile = open(fname, 'a+')
     if os.path.exists(fname):
-        print('loading previous results from %s' %ffile)
+        print('loading previous results from %s' %fname)
         try:
+            ffile = open(fname, 'r')
             all_results = pickle.load(ffile)
-            print('found %s runs in file' %len(all_results.keys())-1)
+            ffile.close()
+            print('found %d runs in file' %(len(all_results.keys())-1))
         except EOFError, e:
-            print('unable to load ffile:%s' %ffile)
+            embed()
+            print('unable to load ffile:%s' %fname)
             all_results = {'args':args}
     else:
         all_results = {'args':args}
@@ -786,7 +831,7 @@ if __name__ == "__main__":
             st = time.time()
             r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
                           max_goal_distance=goal_dis, n_playouts=args.num_playouts,
-                          max_rollout_length=args.rollout_steps, 
+                          max_rollout_length=args.rollout_steps,
                           prob_fn=prior, estimator=args.model_type,
                           history_size=history_size, do_render=args.render)
 
@@ -794,7 +839,11 @@ if __name__ == "__main__":
             r['full_end_time'] = et
             r['full_start_time'] = st
             all_results[seed] = r
+
+            ffile = open(fname, 'w+')
             pickle.dump(all_results,ffile)
+            print("saved seed %s"%seed)
+            ffile.close()
             seed +=1
     embed()
     print("FINISHED")

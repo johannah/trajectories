@@ -5,6 +5,7 @@
 
 import matplotlib.pyplot as plt
 from imageio import imwrite
+import sys
 from gym_trajectories.envs.road import RoadEnv, max_pixel, min_pixel
 import time
 import numpy as np
@@ -38,14 +39,14 @@ def get_vqvae_pcnn_model(state_index, cond_states, rollout_length):
     print("starting vqvae pcnn for %s predictions" %rollout_length)
     # normalize data before putting into vqvae
     st = time.time()
-    broad_states = ((cond_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None] 
+    broad_states = ((cond_states-min_pixel)/float(max_pixel-min_pixel) ).astype(np.float32)[:,None]
     # transofrms HxWxC in range 0,255 to CxHxW and range 0.0 to 1.0
-    nroad_states = Variable(torch.FloatTensor(broad_states))
+    nroad_states = Variable(torch.FloatTensor(broad_states)).to(DEVICE)
     x_d, z_e_x, z_q_x, cond_latents = vmodel(nroad_states)
 
     latent_shape = (6,6)
     _, ys, xs = cond_states.shape
-    proad_states = np.zeros((rollout_length,ys,xs)) 
+    proad_states = np.zeros((rollout_length,ys,xs))
     rollout_length = proad_states.shape[0]
     est = time.time()
     print("condition prep time", round(est-st,2))
@@ -109,20 +110,20 @@ class TestRollouts():
         false_neg[false_neg>0] = 1
         false_neg_count = false_neg.sum()
         return false_neg_count, false_neg
- 
+
     def estimate_the_future(self, current_road_map, state_index):
         #######################
         # determine how different the predicted was from true for the last state
         # pred_road should be all zero if no cars have been predicted
         assert state_index>= self.history_size
         last_false_neg_counts,last_false_neg = self.get_false_neg_counts(state_index)
-    
+
         print("running all rollouts")
         # ending index is noninclusive
         # starting index is inclusive
         est_from = state_index+1
         pred_length = self.rollout_length
-    
+
         # put in the true road map for this step
         self.road_map_ests[state_index] = current_road_map
         s = range(self.road_map_ests.shape[0])
@@ -168,10 +169,10 @@ class TestRollouts():
         print("####################################")
         #embed()
 
-def run_test(seed=3432, ysize=48, xsize=48, level=6, 
-        n_playouts=300, 
+def run_test(seed=3432, ysize=48, xsize=48, level=6,
+        n_playouts=300,
         max_rollout_length=50, estimator=get_vqvae_pcnn_model,
-        history_size=4, 
+        history_size=4,
         do_render=False):
     # restart at same position every time
     rdn = np.random.RandomState(seed)
@@ -201,17 +202,17 @@ if __name__ == "__main__":
     #vq_name = 'vqvae4layer_base_k512_z32_dse00025.pkl'
     # train loss .034, test_loss sum .0355 epoch 51
     vq_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
-    default_vqvae_model_loadpath = os.path.join(default_base_savedir, 
+    default_vqvae_model_loadpath = os.path.join(default_base_savedir,
             vq_name)
     # train loss of .39, epoch 31
     #pcnn_name = 'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl'
-    # false negs over 10 steps for seed 35 
-    # [11, 13, 14, 12, 19, 27, 30, 35, 38, 37] 
+    # false negs over 10 steps for seed 35
+    # [11, 13, 14, 12, 19, 27, 30, 35, 38, 37]
     # [10, 12, 13, 12, 19, 27, 30, 33, 36, 38]
     # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     # train loss of 1.09, test loss 1.25 epoch 10
     pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
-    # false negs over 10 steps for seed 35 
+    # false negs over 10 steps for seed 35
     # [13, 13, 16, 13, 23, 29, 31, 36, 35, 37]
     # [12, 12, 15, 16, 23, 29, 31, 33, 35, 38]
     # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
@@ -267,7 +268,7 @@ if __name__ == "__main__":
             vqvae_model_dict = torch.load(args.vqvae_model_loadpath, map_location=lambda storage, loc: storage)
             vmodel.load_state_dict(vqvae_model_dict['state_dict'])
             epoch = vqvae_model_dict['epochs'][-1]
-            print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch,
                                                    args.vqvae_model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.vqvae_model_loadpath))
@@ -276,12 +277,12 @@ if __name__ == "__main__":
 
 
         if os.path.exists(args.pcnn_model_loadpath):
-            pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS, 
+            pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS,
                     history_size, spatial_cond_size=cond_size).to(DEVICE)
             pcnn_model_dict = torch.load(args.pcnn_model_loadpath, map_location=lambda storage, loc: storage)
             pcnn_model.load_state_dict(pcnn_model_dict['state_dict'])
             epoch = pcnn_model_dict['epochs'][-1]
-            print('loaded checkpoint at epoch: {} from {}'.format(epoch, 
+            print('loaded checkpoint at epoch: {} from {}'.format(epoch,
                                                    args.pcnn_model_loadpath))
         else:
             print('could not find checkpoint at {}'.format(args.pcnn_model_loadpath))
@@ -293,7 +294,7 @@ if __name__ == "__main__":
         logging.basicConfig(level=logging.INFO)
 
     fname = 'test_model_%s_length_%s.pkl' %(
-                                    args.model_type, 
+                                    args.model_type,
                                     args.rollout_steps)
 
 
@@ -316,9 +317,9 @@ if __name__ == "__main__":
             seed +=1
         else:
             st = time.time()
-            r = run_test(seed=seed, ysize=args.ysize, xsize=args.xsize, 
+            r = run_test(seed=seed, ysize=args.ysize, xsize=args.xsize,
                           level=args.level, estimator=estimator,
-                          max_rollout_length=args.rollout_steps, 
+                          max_rollout_length=args.rollout_steps,
                           history_size=history_size, do_render=args.render)
 
             #et = time.time()
