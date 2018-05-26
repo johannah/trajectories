@@ -106,7 +106,7 @@ def equal_node_probs_fn(state, state_index, env):
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
 
-def get_vqvae_pcnn_model(state_index, cond_states, rollout_length):
+def get_vqvae_pcnn_model(state_index, est_from, true_states, cond_states, rollout_length):
     print("starting vqvae pcnn for %s predictions" %rollout_length)
     # normalize data before putting into vqvae
     st = time.time()
@@ -122,7 +122,7 @@ def get_vqvae_pcnn_model(state_index, cond_states, rollout_length):
     est = time.time()
     print("condition prep time", round(est-st,2))
     for ind in range(rollout_length):
-        frame_num = ind+state_index
+        frame_num = ind+est_from
         pst = time.time()
         print("predicting latent: %s" %frame_num)
         # predict next
@@ -150,20 +150,14 @@ def get_vqvae_pcnn_model(state_index, cond_states, rollout_length):
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
-    #proad_states = np.vstack((proad_states,pred[None]))
-    ## input x is between 0 and 1
-    #f, ax = plt.subplots(1,3, figsize=(10,3))
-    #real = road_states[frame_num]
-    #ax[0].imshow(real, vmin=0, vmax=max_pixel)
-    #ax[0].set_title("original frame %s"%frame_num)
-    #ax[1].imshow(pred, vmin=0, vmax=max_pixel)
-    #ax[1].set_title("pred")
-    #ax[2].imshow((pred-real)**2, cmap='gray')
-    #ax[2].set_title("error")
-    #f.tight_layout()
-    #plt.savefig('imgs/frame%04d'%frame_num)
-    #plt.close()
     return proad_states.astype(np.int)[:,0]
+
+
+def get_none_model(state_index, est_from, true_states, cond_states, rollout_length):
+    print("starting none %s predictions" %rollout_length)
+    # normalize data before putting into vqvae
+    return true_states[est_from:est_from+rollout_length]
+
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
@@ -437,7 +431,7 @@ class PMCTS(object):
         else:
             # can use past frames because we add them as we go
             cond_frames = self.road_map_ests[cond_from:cond_to]
-            ests = self.estimator(state_index, cond_frames, pred_length)
+            ests = self.estimator(state_index, est_from, self.env.road_maps, cond_frames, pred_length)
             self.road_map_ests[est_from:est_to] = ests
 
         false_negs = []
@@ -453,7 +447,7 @@ class PMCTS(object):
             #ax[2].imshow(fn, origin='lower')
             #ax[2].set_title('false negs %s'%fnc)
             #plt.savefig(name)
-        return fnc, rinds
+        return false_negs, rinds
 
 
     def get_best_action(self, state, state_index):
