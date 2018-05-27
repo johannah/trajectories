@@ -8,7 +8,7 @@ from IPython import embed
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
-from vqvae import AutoEncoder, to_scalar
+from vqvae import AutoEncoder
 #from vqvae_bigger import AutoEncoder, to_scalar
 #from vqvae_small import AutoEncoder, to_scalar
 from torch.autograd import Variable
@@ -21,7 +21,7 @@ from imageio import imread, imwrite
 from PIL import Image
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
-from utils import get_cuts
+from utils import get_cuts, to_scalar
 from datasets import FroggerDataset
 from datasets import max_pixel, min_pixel
 

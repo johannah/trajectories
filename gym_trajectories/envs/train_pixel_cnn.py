@@ -2,7 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from torchnet.logger import VisdomPlotLogger, VisdomLogger
-from vqvae import AutoEncoder, to_scalar
+from vqvae import AutoEncoder
 import sys
 import shutil
 import torch
@@ -25,7 +25,7 @@ from road import  max_pixel, min_pixel
 from PIL import Image
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic
-from utils import get_cuts
+from utils import get_cuts, to_scalar
 from datasets import EpisodicVqVaeFroggerDataset, FroggerDataset
 
 def train(epoch,train_loader,DEVICE,history_size):

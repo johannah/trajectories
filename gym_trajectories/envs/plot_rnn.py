@@ -22,7 +22,7 @@ from datasets import EpisodicFroggerDataset, EpisodicDiffFroggerDataset
 from collections import OrderedDict
 from imageio import imread, imwrite
 from glob import glob
-from vq_vae_small import AutoEncoder, to_scalar
+from vq_vae_small import AutoEncoder
 from conv_vae import Encoder, Decoder, VAE
 from utils import discretized_mix_logistic_loss
 from utils import sample_from_discretized_mix_logistic

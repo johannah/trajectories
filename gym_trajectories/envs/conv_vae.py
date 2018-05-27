@@ -101,13 +101,15 @@ class Decoder(torch.nn.Module):
 
 class VAE(torch.nn.Module):
 
-    def __init__(self, encoder, decoder, use_cuda=False):
+    def __init__(self, encoder, decoder, mu_size=800, device='cpu'):
         super(VAE, self).__init__()
+        self.name = 'vae'
         self.encoder = encoder
         self.decoder = decoder
-        self.use_cuda = use_cuda
-        self._enc_mu = torch.nn.Linear(800,800)
-        self._enc_log_sigma = torch.nn.Linear(800,800)
+        self.device = device
+        # dsize is 800 when input is 40x40
+        self._enc_mu = torch.nn.Linear(mu_size,mu_size)
+        self._enc_log_sigma = torch.nn.Linear(mu_size,mu_size)
 
 
     def _sample_latent(self, sh_enc):
@@ -123,18 +125,15 @@ class VAE(torch.nn.Module):
 
         self.z_mean = mu
         self.z_sigma = sigma
-        if self.use_cuda:
-            v = Variable(std_z, requires_grad=False).cuda()
-        else:
-            v = Variable(std_z, requires_grad=False)
-
+        v = Variable(std_z, requires_grad=False).to(self.device)
         return mu + sigma * v  # Reparameterization trick
 
     def forward(self, state):
         h_enc = self.encoder(state)
         z = self._sample_latent(h_enc)
+        _, bs, ys, xs = h_enc.shape
         # reshape to what it was before we went thorugh h_enc - should make vars
-        zs = z.contiguous().view(z.shape[0], 32, 5, 5)
+        zs = z.contiguous().view(z.shape[0], bs, ys, xs)
         return self.decoder(zs)
 
 

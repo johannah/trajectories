@@ -10,13 +10,6 @@ from copy import deepcopy
 from IPython import embed
 #from utils import discretized_mix_logistic_loss
 #from utils import sample_from_discretized_mix_logistic
-
-def to_scalar(arr):
-    if type(arr) == list:
-        return [x.cpu().data.tolist() for x in arr]
-    else:
-        return arr.cpu().data.tolist()
-
 class AutoEncoder(nn.Module):
     def __init__(self, num_clusters=512, encoder_output_size=32, nr_logistic_mix=10):
         super(AutoEncoder, self).__init__()

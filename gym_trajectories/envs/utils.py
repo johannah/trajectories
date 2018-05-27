@@ -8,6 +8,13 @@ from torch.nn.utils import weight_norm as wn
 import numpy as np
 from IPython import embed
 
+def to_scalar(arr):
+    if type(arr) == list:
+        return [x.cpu().data.tolist() for x in arr]
+    else:
+        return arr.cpu().data.tolist()
+
+
 def get_cuts(length,window_size):
     if window_size<length:
         st_pts = list(np.arange(0,length,window_size,dtype=np.int))

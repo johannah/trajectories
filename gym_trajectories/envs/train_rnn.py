@@ -35,7 +35,6 @@ from utils import get_cuts
 #vae_Xpca_std = pcad['Xpca_std']
 torch.manual_seed(139)
 
-
 def test(e,dataloader,window_size,do_use_cuda=False):
     losses = []
     for batch_idx, (data_mu_diff_scaled, _, _, data_sigma_diff_scaled, _, _, name) in enumerate(dataloader):
