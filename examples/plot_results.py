@@ -13,8 +13,14 @@ def get_steps_won(pdict):
     seeds_won = np.array([p for p in seeds if pdict[p]['reward'] > 0])
     seeds_lost = np.array([p for p in seeds if pdict[p]['reward'] < 0])
     steps = [len(pdict[seed]['actions']) for seed in seeds_won]
+    z = zip(seeds_won, steps)
+    steps_sorted = sorted(z, key=lambda x: x[1])
 
-    return {'mean steps':np.mean(steps), 'median steps':np.median(steps), 'max steps':np.max(steps), 'min_steps':np.min(steps), 'seeds_lost':seeds_lost}
+    return {'mean steps':np.mean(steps), 'median steps':np.median(steps),
+            'max steps':np.max(steps), 'min_steps':np.min(steps),
+            'var_steps':np.std(steps)}
+             #'seed steps sorted':steps_sorted,
+            #'seeds_lost':seeds_lost}
 
 
 
