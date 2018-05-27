@@ -814,7 +814,7 @@ if __name__ == "__main__":
     if os.path.exists(fname):
         print('loading previous results from %s' %fname)
         try:
-            ffile = open(fname, 'r')
+            ffile = open(fname, 'rb')
             all_results = pickle.load(ffile)
             ffile.close()
             print('found %d runs in file' %(len(all_results.keys())-1))
@@ -829,7 +829,7 @@ if __name__ == "__main__":
         if ((seed in all_results.keys()) and args.save_pkl):
             rew = all_results[seed]['reward'] 
             print("seed %s already in results, score was %s" %(seed,rew))
-            if rew>0:
+            if rew>=0:
                 seed +=1
                 continue
             else:
