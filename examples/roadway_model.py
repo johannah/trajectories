@@ -338,7 +338,7 @@ class PMCTS(object):
             print(e)
             embed()
 
-        action_probs = softmax(1.0/temp*np.log(visits))
+        action_probs = softmax(1.0/temp*np.log(visits)+1e-10)
         return actions, action_probs, all_frames
 
 
@@ -486,7 +486,8 @@ class PMCTS(object):
 
 def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes,
                          model_road_maps, rollout_length,
-                         t,plot_error=False,gap=3,min_agents_alive=4):
+                         t,plot_error=False,gap=3,min_agents_alive=4, 
+                         do_plot_playouts=False):
     true_road_maps = true_env.road_maps
     true_goal_map = true_env.goal_map
     if plot_error:
@@ -546,48 +547,49 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
 
         playouts = sframes[ts][2]
         c = 0
-        for pn, pframe in enumerate(playouts):
-                if not c%gap:
-                    if c > 10:
-                        if pframe.sum()<(min_agents_alive*true_env.robot.color-1):
-                            continue
+        if do_plot_playouts:
+            for pn, pframe in enumerate(playouts):
+                    if not c%gap:
+                        if c > 10:
+                            if pframe.sum()<(min_agents_alive*true_env.robot.color-1):
+                                continue
 
-                    print("plotting step {}/{} playout step {}".format(ts,t,pn))
-                    true_playout_frame = true_road_maps[pn]+pframe+true_goal_map
-                    est_playout_frame = model_road_maps[pn]+pframe+true_goal_map
+                        print("plotting step {}/{} playout step {}".format(ts,t,pn))
+                        true_playout_frame = true_road_maps[pn]+pframe+true_goal_map
+                        est_playout_frame = model_road_maps[pn]+pframe+true_goal_map
 
-                    fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
-                    if plot_error:
-                        f,ax=plt.subplots(1,4, figsize=(16,3.5))
-                    else:
-                        f,ax=plt.subplots(1,3, figsize=(12,3.5))
+                        fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
+                        if plot_error:
+                            f,ax=plt.subplots(1,4, figsize=(16,3.5))
+                        else:
+                            f,ax=plt.subplots(1,3, figsize=(12,3.5))
 
-                    ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[0].set_title("true state step:{}/{}".format(ts,t))
-                    ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[1].set_title("true rollout step:{}/{}".format(pn,rollout_length))
-                    ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-                    ax[2].set_title("{} model rollout step:{}/{}".format(model_type,pn,rollout_length))
-                    if plot_error:
-                        err = np.zeros_like(true_road_maps[0])
-                        true_car = true_road_maps[pn]>0
-                        pred_car = model_road_maps[pn]>0
-                        true_free = true_road_maps[pn]<1
-                        pred_free = model_road_maps[pn]<1
-                        # predict car where there was free space
-                        false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
-                        err[false_pos>1] = 15 # false pos
+                        ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
+                        ax[0].set_title("true state step:{}/{}".format(ts,t))
+                        ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
+                        ax[1].set_title("true rollout step:{}/{}".format(pn,rollout_length))
+                        ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
+                        ax[2].set_title("{} model rollout step:{}/{}".format(model_type,pn,rollout_length))
+                        if plot_error:
+                            err = np.zeros_like(true_road_maps[0])
+                            true_car = true_road_maps[pn]>0
+                            pred_car = model_road_maps[pn]>0
+                            true_free = true_road_maps[pn]<1
+                            pred_free = model_road_maps[pn]<1
+                            # predict car where there was free space
+                            false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
+                            err[false_pos>1] = 15 # false pos
 
-                        # predict free where there was car  # bad
-                        false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
-                        err[false_neg>1] = 250 # false neg
+                            # predict free where there was car  # bad
+                            false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
+                            err[false_neg>1] = 250 # false neg
 
-                        ax[3].imshow(err, origin='lower', cmap=plt.cm.gray)
-                        ax[3].set_title("error in model:{}/{}".format(pn,rollout_length))
-                    f.tight_layout()
-                    plt.savefig(os.path.join(fpath,fname))
-                    plt.close()
-                c+=1
+                            ax[3].imshow(err, origin='lower', cmap=plt.cm.gray)
+                            ax[3].set_title("error in model:{}/{}".format(pn,rollout_length))
+                        f.tight_layout()
+                        plt.savefig(os.path.join(fpath,fname))
+                        plt.close()
+                    c+=1
     print("making gif")
     gif_path = os.path.join(fpath, 'seed_{}_reward_{}_gap_{}.gif'.format(seed, int(reward),gap))
     search = os.path.join(fpath, 'seed_*.png')
@@ -685,10 +687,11 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     plt.clf()
     plt.close()
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
-    if args.plot_playouts:
-        plot_playout_scatters(true_env, 'trials', str(estimator), seed, reward, sframes,
+    if args.save_plots:
+        plot_playout_scatters(true_env, 'trials', 
+                          str(estimator), seed, reward, sframes,
                           pmcts.road_map_ests, pmcts.rollout_length,
-                          t,plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4)
+                          t,plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4, do_plot_playouts=args.plot_playouts)
     return results
 
 if __name__ == "__main__":
@@ -738,9 +741,11 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
+    parser.add_argument('--save_pkl', action='store_false', default=True)
     parser.add_argument('--render', action='store_true', default=False)
-    parser.add_argument('--do_plot_error', action='store_true', default=True)
+    parser.add_argument('--do_plot_error', action='store_false', default=True)
     parser.add_argument('--plot_playouts', action='store_true', default=False)
+    parser.add_argument('--save_plots', action='store_true', default=False)
     parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
     parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='options are goal or equal')
     #equal_node_probs_fn(
@@ -821,28 +826,34 @@ if __name__ == "__main__":
         all_results = {'args':args}
 
     for i in range(args.num_episodes):
+        if ((seed in all_results.keys()) and args.save_pkl):
+            rew = all_results[seed]['reward'] 
+            print("seed %s already in results, score was %s" %(seed,rew))
+            if rew>0:
+                seed +=1
+                continue
+            else:
+                print('rerunning since this one was lost')
         print("STARTING EPISODE %s seed %s" %(i,seed))
-        if seed in all_results.keys():
-            print("seed %s already in results - skipping" %seed)
-            seed +=1
-        else:
-            st = time.time()
-            r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
-                          max_goal_distance=goal_dis, n_playouts=args.num_playouts,
-                          max_rollout_length=args.rollout_steps,
-                          prob_fn=prior, estimator=args.model_type,
-                          history_size=history_size, do_render=args.render)
+        print(args.save_pkl)
+        st = time.time()
+        r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
+                      max_goal_distance=goal_dis, n_playouts=args.num_playouts,
+                      max_rollout_length=args.rollout_steps,
+                      prob_fn=prior, estimator=args.model_type,
+                      history_size=history_size, do_render=args.render)
 
-            et = time.time()
-            r['full_end_time'] = et
-            r['full_start_time'] = st
-            all_results[seed] = r
+        et = time.time()
+        r['full_end_time'] = et
+        r['full_start_time'] = st
+        all_results[seed] = r
 
+        if args.save_pkl:
             ffile = open(fname, 'w+')
             pickle.dump(all_results,ffile)
             print("saved seed %s"%seed)
             ffile.close()
-            seed +=1
+        seed +=1
     embed()
     print("FINISHED")
 

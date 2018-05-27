@@ -179,6 +179,7 @@ class RoadEnv():
         self.lose_reward = -10
         self.step_reward = 0
         self.win_reward = 10
+        self.timeout_reward = 0
         self.timestep = timestep
         self.max_speed = 1.0
         # average speed
@@ -207,18 +208,19 @@ class RoadEnv():
         return self.lose_reward + self.lose_reward/float(state_index+1)
         #return self.lose_reward
 
-    def get_timeout_reward(self, steps):
-        # more steps is smaller penalty
-        return self.lose_reward/float(steps+.1)
 
     def get_win_reward(self, state_index):
         return self.win_reward + self.win_reward/float(state_index+1)
 
+    def get_timeout_reward(self, state_index):
+        return self.timeout_reward
+
     def check_state(self, state, robot_is_alive, state_index):
         lose_reward = self.get_lose_reward(state_index)
         win_reward = self.get_win_reward(state_index)
+
         if state_index > self.max_steps-4:
-            return True, lose_reward
+            return True, self.timeout_reward 
         elif not robot_is_alive:
             return True, lose_reward
         else:
