@@ -22,10 +22,10 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 
-from gym_trajectories.envs.vqvae import AutoEncoder, to_scalar
+from gym_trajectories.envs.vqvae import AutoEncoder
 from gym_trajectories.envs.pixel_cnn import GatedPixelCNN
 
-from gym_trajectories.envs.utils import discretized_mix_logistic_loss, get_cuts
+from gym_trajectories.envs.utils import discretized_mix_logistic_loss, get_cuts, to_scalar
 from gym_trajectories.envs.utils import sample_from_discretized_mix_logistic
 
 
