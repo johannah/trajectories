@@ -406,7 +406,7 @@ class PMCTS(object):
         else:
             print("running one rollout")
             # only run last rollout that was not finished
-            est_from = state_index+self.rollout_length+1
+            est_from = state_index+self.rollout_length
             pred_length = 1
 
 
@@ -433,8 +433,20 @@ class PMCTS(object):
                 # can use past frames because we add them as we go
                 cond_frames = self.road_map_ests[cond_from:cond_to]
                 ests = self.estimator(state_index, rinds, self.env.road_maps, cond_frames)
-                self.road_map_ests[est_from:est_to] = ests
+                self.road_map_ests[rinds] = ests
 
+            #for aa in rinds:
+            #    print("STATE", state_index, "ADDDED", aa)
+            #    try:
+            #        tra = self.env.road_maps[aa]
+            #        tre = self.road_map_ests[aa]
+            #        assert np.abs(tra-tre).sum() == 0
+            #    except Exception, e:
+            #        print(e)
+            #        print('not equal', state_index, aa)
+            #        print(tra.sum())
+            #        print(tre.sum())
+            #        embed()
             false_negs = []
             for xx, i in enumerate(rinds):
                 fnc,fn = self.get_false_neg_counts(i)
@@ -819,6 +831,7 @@ if __name__ == "__main__":
             ffile.close()
             print('found %d runs in file' %(len(all_results.keys())-1))
         except EOFError, e:
+            print('end of file', e)
             embed()
             print('unable to load ffile:%s' %fname)
             all_results = {'args':args}
