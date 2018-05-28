@@ -51,7 +51,7 @@ def train(epoch,train_loader,do_use_cuda):
         loss_3.backward()
         opt.step()
         train_loss.append(to_scalar([loss_1, loss_2, loss_3]))
-        if not batch_idx%10:
+        if not batch_idx%100:
             print 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {} Time: {}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / float(len(train_loader)),
@@ -228,21 +228,22 @@ if __name__ == '__main__':
         #    test_img = args.model_savepath.replace('.pkl', '_test.png')
         for e in xrange(epoch,epoch+args.num_epochs):
             train_loss = train(e,data_train_loader,do_use_cuda=use_cuda)
+            test_img_name = os.path.join(default_base_savedir , basename + "e%05d.png"%e)
+            test_loss = test(e,data_test_loader,do_use_cuda=use_cuda,save_img_path=test_img_name)
+            epochs.append(e)
+            train_loss_list.append(train_loss)
+            test_loss_list.append(test_loss)
+            print('send data to plotter')
+            train_loss_logger.log(e, np.sum(train_loss_list[-1]))
+            test_loss_logger.log(e,  np.sum(test_loss_list[-1]))
+            print('epoch {} train_loss {} test_loss {}'.format(e, train_loss,test_loss))
+            print('epoch {} train_loss sum {} test_loss sum {}'.format(e, np.sum(train_loss),np.sum(test_loss)))
+
             if (not e%args.save_every) or (e==epoch+args.num_epochs):
                 print('------------------------------------------------------------')
-                test_img_name = os.path.join(default_base_savedir , basename + "e%05d.png"%e)
+                print('----------------------saving--------------------------------')
                 filename = os.path.join(default_base_savedir , basename + "e%05d.pkl"%e)
-                test_loss = test(e,data_test_loader,do_use_cuda=use_cuda,save_img_path=test_img_name)
 
-                epochs.append(e)
-                train_loss_list.append(train_loss)
-                test_loss_list.append(test_loss)
-                print('send data to plotter')
-
-                train_loss_logger.log(e, np.sum(train_loss_list[-1]))
-                test_loss_logger.log(e,  np.sum(test_loss_list[-1]))
-                print('train_loss {} test_loss {}'.format(train_loss,test_loss))
-                print('train_loss sum {} test_loss sum {}'.format(np.sum(train_loss),np.sum(test_loss)))
                 state = {'epoch':e,
                          'epochs':epochs,
                          'state_dict':vmodel.state_dict(),
