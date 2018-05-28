@@ -22,13 +22,13 @@ import os
 from imageio import imread, imwrite
 from PIL import Image
 
-max_pixel = 155
+max_pixel = 244
 min_pixel = 0
 
 class Particle():
     def __init__(self, world, name, local_map, init_y, init_x,
                  angle, speed, clear_map=False,
-                 bounce=True, bounce_angle=0, entire_body_outside=True,
+                 bounce=True, bounce_angle=45, entire_body_outside=True,
                  color=12, ymarkersize=3, xmarkersize=3):
 
         self.clear_map = clear_map
@@ -54,9 +54,13 @@ class Particle():
         if hit_wall:
             # some agents will bounce off of the walls, others should die
             if self.bounce:
+                print("BOUNCED", self.name)
                 self.angle+=np.sign(self.angle)*self.bounce_angle
             else:
                 #print("bounced", self.name, self.alive, self.y, self.x)
+                if self.name == 'robot':
+                    embed()
+                    print("ROBOT BOUNCED AND DIED")
                 self.alive = False
 
     def step(self, timestep):
@@ -94,23 +98,55 @@ class Particle():
         #if self.name == 'robot':
         #    print('robot plot',newy, newx, newyplus, newxplus)
         # if any part of the body gets out of bounds - robot
+        if self.name == 'goal':
+            print(newx, newxplus)
+            print(newy, newyplus)
         if not self.entire_body_outside:
             # subtract one because of the way range works
-            if ((newyplus-1 < 0)  or (newxplus-1 < 0) or
-                (newy < 0) or (newx < 0) or
-                (newyplus-1 > self.world.ysize-1)  or
-                (newxplus-1 > self.world.xsize-1) or
-                (newy > self.world.ysize-1)  or
-                (newx > self.world.xsize-1)):
-                #print('robot bounce',newy, newx, newyplus, newxplus)
-                self.wall_bounce(True)
-        else:
+            #if ((newyplus-1 < 0)  or (newxplus-1 < 0) or
+            #    (newy < 0) or (newx < 0) or
+            #    (newyplus-1 > self.world.ysize-1)  or
+            #    (newxplus-1 > self.world.xsize-1) or
+            #    (newy > self.world.ysize-1)  or
+            #    (newx > self.world.xsize-1)):
+            #    #print('robot bounce',newy, newx, newyplus, newxplus)
+
             # only bounce if all are outside of the bounds
+            hit = False
+            if (newy < 0): 
+                # hitting bottom
+                newy = 0
+                newyplus = int(np.rint(newy+self.ymarkersize))
+                hit = True
+
+            if (newx < 0):
+                # this is hitting left wall
+                newx = 0
+                newxplus = int(np.rint(newx+self.xmarkersize))
+                hit = True
+
+            if (newyplus > self.world.ysize-1):
+                # top wall hit
+                newy = (self.world.ysize-1)-self.ymarkersize
+                newyplus = int(np.rint(newy+self.ymarkersize))
+                hit = True
+
+            if (newxplus > self.world.xsize-1):
+                # right size wall hit
+                newx = (self.world.xsize-1)-self.xmarkersize
+                newxplus = int(np.rint(newx+self.xmarkersize))
+                hit = True
+
+            #if hit:
+            #    print("hit", self.name)
+            #    embed()
+            self.wall_bounce(hit)
+
+        else:
             if (((newyplus < 0)  and (newy < 0)) or
                 ((newyplus > self.world.ysize-1) and (newy > self.world.ysize-1)) or
                ((newxplus < 0) and (newx < 0)) or
                ((newxplus > self.world.xsize-1) and (newx > self.world.xsize-1))):
-
                 self.wall_bounce(True)
 
             # make edges within border
@@ -138,23 +174,23 @@ class Particle():
         #    print('-------------------')
 
         if self.alive:
-            if self.name == 'goal':
-                # goal is a special cross
-                y, x = int(self.y), int(self.x)
-                inds = np.array([(y,   x),
-                                 (y+1, x),
-                                 (y-1, x),
-                                 (y,   x+1),
-                                 (y,   x-1)]).T
+            #if self.name == 'goal':
+            #    # goal is a special cross
+            #    y, x = int(self.y), int(self.x)
+            #    inds = np.array([(y,   x),
+            #                     (y+1, x),
+            #                     (y-1, x),
+            #                     (y,   x+1),
+            #                     (y,   x-1)]).T
 
-            else:
-                y = range(newy, newyplus)
-                x = range(newx, newxplus)
-                if not len(y):
-                    y = [int(newy)]
-                if not len(x):
-                    x = [int(newx)]
-                inds = np.array([(yy,xx) for yy in y for xx in x]).T
+            #else:
+            y = range(newy, newyplus)
+            x = range(newx, newxplus)
+            if not len(y):
+                y = [int(newy)]
+            if not len(x):
+                x = [int(newx)]
+            inds = np.array([(yy,xx) for yy in y for xx in x]).T
 
             try:
                 self.local_map[inds[0,:], inds[1,:]] = self.color
@@ -225,7 +261,7 @@ class RoadEnv():
             # if particle is able to collide with other agents
             if road_map[ry,rx].sum()>0:
                 return True, self.get_lose_reward(state_index)
-            elif self.goal_map[ry,rx].sum()>0:
+            elif self.goal_maps[state_index][ry,rx]>0:
                 return True, self.get_win_reward(state_index)
             else:
                 return False, 0.0
@@ -286,7 +322,7 @@ class RoadEnv():
                 # fast
                 'sport':{'color':130, 'speed':np.linspace(1.3,2.,10), 'xsize':max(mx-3,2), 'angles':[], 'lanes':[]},
                 # variable
-                'sedan':{'color':max_pixel, 'speed':np.linspace(1.,2.3,10), 'xsize':max(mx-4,3), 'angles':[], 'lanes':[]},
+                'sedan':{'color':144, 'speed':np.linspace(1.,2.3,10), 'xsize':max(mx-4,3), 'angles':[], 'lanes':[]},
                 }
 
 
@@ -320,14 +356,16 @@ class RoadEnv():
 
         goal_y = float(self.rdn.randint(goal_ymin,goal_ymax))
         goal_x = float(self.rdn.randint(goal_xmin,goal_xmax))
-        self.goal_map = np.zeros((self.ysize, self.xsize), np.uint8)
+        self.goal_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
+        goal_angle = self.rdn.choice(range(1, 359, 45))
+        goal_speed = self.max_speed*2
         self.goal = Particle(world=self, name='goal',
-                              local_map=self.goal_map,
+                              local_map=self.goal_maps[0],
                               init_y=goal_y, init_x=goal_x,
-                              angle=0, speed=0.0, clear_map=True,
+                              angle=goal_angle, speed=goal_speed, clear_map=True,
                               bounce=True, entire_body_outside=False,
-                              ymarkersize=1,xmarkersize=1,
-                              color=254)
+                              ymarkersize=2,xmarkersize=2,
+                              color=max_pixel)
 
     def reset(self, goal_distance=1000, experiment_name="None"):
         self.experiment_name = experiment_name
@@ -338,7 +376,7 @@ class RoadEnv():
         plt.close()
 
         # robot shape
-        yrsize,xrsize=1,1
+        yrsize,xrsize=1,5
         self.safezone = yrsize*1
         init_ys = [0, self.ysize-(1+yrsize)]
         init_y = float(self.rdn.choice(init_ys))
@@ -354,12 +392,12 @@ class RoadEnv():
                               color=200)
 
         # only allow goal to be so far away
-        bad_goal = True
-        while bad_goal:
-            self.create_goal(goal_distance)
-            si = 0
-            s = self.get_state(si)
-            bad_goal, _ = self.check_state(s, True, si)
+        self.create_goal(goal_distance)
+        #bad_goal = True
+        #while bad_goal:
+        #    si = 0
+        #    s = self.get_state(si)
+        #    bad_goal, _ = self.check_state(s, True, si)
 
         self.configure_cars(max_xcarsize)
         self.obstacles = {}
@@ -367,20 +405,31 @@ class RoadEnv():
         # initialize map
         [self.step_obstacles() for i in range(self.xsize)]
         # make all of the cars
+        self.goals = []
         for t in range(self.max_steps):
             self.step_obstacles()
-            self.road_maps[t,:,:] = self.road_map
+            self.goal_maps[t] = self.goal.local_map
+            # road map has goal and road
+            self.road_maps[t] = self.goal.local_map
+            nz = self.road_map>0
+            self.road_maps[t,nz] = self.road_map[nz]
+            self.goals.append((self.goal.y, self.goal.x))
+
+
+
         #    s=self.get_state(t)
         #    self.render(s,t)
         # set steps to zero for the agent
         state = self.get_state(0)
         if not self.robot.alive:
+            print('robot died')
             embed()
         return state
 
     def step_obstacles(self):
         self.road_map *=0
         dead_obstacles = []
+        self.goal.step(self.timestep)
         for n,o in self.obstacles.iteritems():
             alive = o.step(self.timestep)
             if not alive:
@@ -419,9 +468,12 @@ class RoadEnv():
 #        self.road_maps = road_maps
 #        self.max_steps = len(self.road_maps)
 #
+
     def get_state(self, state_index):
         road_map = self.get_road_state(state_index)
-        gstate = (self.goal.y/float(self.ysize), self.goal.x/float(self.xsize))
+        #gstate = self.get_goal_state(state_index)
+        gy, gx = self.goals[state_index]
+        gstate = (gy/float(self.ysize), gx/float(self.xsize))
         rstate = (self.robot.y/float(self.ysize), self.robot.x/float(self.xsize))
         state = (gstate, rstate, road_map)
         #state = [gstate,rstate]
@@ -511,9 +563,6 @@ class RoadEnv():
 
     def render(self, state):
         show_state = self.get_state_plot(state)
-        if not self.goal_map.sum() > 0:
-            print("no goal")
-            embed()
         if not self.plotted:
             # reset environment
             self.plotted = True
@@ -541,7 +590,8 @@ if __name__ == '__main__':
         seed = 40
         num_episodes = 50
     ysize, xsize = 48,48
-    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_imgs_%sx%s/'%(dirname, ysize,xsize)
+    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_moving_imgs_%sx%s/'%(dirname, ysize,xsize)
+    #save_path = '%s_imgs_%sx%s/'%(dirname, ysize,xsize)
     rdn = np.random.RandomState(seed)
     env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=6)
     if not os.path.exists(save_path):
