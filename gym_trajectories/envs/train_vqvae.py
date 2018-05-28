@@ -151,7 +151,7 @@ if __name__ == '__main__':
     default_base_datadir = '../../../trajectories_frames/dataset/'
     default_base_savedir = '../../../trajectories_frames/saved/vqvae'
 
-    default_dataset = 'imgs_48x48'
+    default_dataset = 'moving_imgs_48x48'
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
@@ -161,7 +161,7 @@ if __name__ == '__main__':
     parser.add_argument('-se', '--save_every', default=5, type=int)
     parser.add_argument('-z', '--num_z', default=32, type=int)
     parser.add_argument('-k', '--num_k', default=512, type=int)
-    parser.add_argument('-e', '--num_epochs', default=350, type=int)
+    parser.add_argument('-e', '--num_epochs', default=250, type=int)
     parser.add_argument('-p', '--port', default=8097, type=int, help='8097 for erehwon 8096 for numenor by default')
     parser.add_argument('-n', '--num_train_limit', default=-1, help='debug flag for limiting number of training images to use. defaults to using all images', type=int)
     parser.add_argument('-g', '--generate_results', action='store_true', default=False, help='generate dataset of codes')

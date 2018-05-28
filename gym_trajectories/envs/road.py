@@ -54,7 +54,7 @@ class Particle():
         if hit_wall:
             # some agents will bounce off of the walls, others should die
             if self.bounce:
-                print("BOUNCED", self.name)
+                #print("BOUNCED", self.name)
                 self.angle+=np.sign(self.angle)*self.bounce_angle
             else:
                 #print("bounced", self.name, self.alive, self.y, self.x)
@@ -98,9 +98,9 @@ class Particle():
         #if self.name == 'robot':
         #    print('robot plot',newy, newx, newyplus, newxplus)
         # if any part of the body gets out of bounds - robot
-        if self.name == 'goal':
-            print(newx, newxplus)
-            print(newy, newyplus)
+        #if self.name == 'goal':
+        #    print(newx, newxplus)
+        #    print(newy, newyplus)
         if not self.entire_body_outside:
             # subtract one because of the way range works
             #if ((newyplus-1 < 0)  or (newxplus-1 < 0) or
@@ -113,7 +113,7 @@ class Particle():
 
             # only bounce if all are outside of the bounds
             hit = False
-            if (newy < 0): 
+            if (newy < 0):
                 # hitting bottom
                 newy = 0
                 newyplus = int(np.rint(newy+self.ymarkersize))
@@ -243,7 +243,7 @@ class RoadEnv():
         return self.lose_reward
 
     def get_win_reward(self, state_index):
-        return self.win_reward + self.get_step_penalty(state_index) 
+        return self.win_reward + self.get_step_penalty(state_index)
 
     def get_step_penalty(self, state_index):
         #print("step reward", state_index, self.max_steps, sr)
@@ -580,15 +580,15 @@ class RoadEnv():
 
 if __name__ == '__main__':
     # generate training data
-    train = True
+    train = False
     if train:
         dirname = 'train'
         seed = 700
         num_episodes = 10000
     else:
-        dirname = 'test_small'
+        dirname = 'test'
         seed = 40
-        num_episodes = 50
+        num_episodes = 3
     ysize, xsize = 48,48
     save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_moving_imgs_%sx%s/'%(dirname, ysize,xsize)
     #save_path = '%s_imgs_%sx%s/'%(dirname, ysize,xsize)
