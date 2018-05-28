@@ -51,7 +51,9 @@ class PTreeNode(object):
         self.P_ = float(prior_prob)
         # action -> tree node
         self.children_ = {}
-        self.n_visits_ = 0
+        # JRH TIRED AND LIKELY HAVE A BUG
+        #self.n_visits_ = 0
+        self.n_visits_ = 1e-6
         self.past_actions = []
         self.n_wins = 0
 
@@ -97,6 +99,7 @@ def goal_node_probs_fn(state, state_index, env):
     goal_loc = env.get_goal_from_state(state)
     if not len(goal_loc[0]):
         print('couldnt find goal in given state estimate')
+        embed()
         return equal_node_probs_fn(state, state_index, env)
 
     gy, gx = goal_loc[0][0], goal_loc[1][0]
@@ -106,16 +109,23 @@ def goal_node_probs_fn(state, state_index, env):
     actions_and_distances = list(zip(env.action_space, action_distances))
     best_angles = sorted(actions_and_distances, key=lambda tup: tup[1])
     best_actions = [b[0] for b in best_angles]
-    best_angles = np.ones(len(env.action_space))
-    top_quarter = len(env.action_space)/4
-    best_angles[:top_quarter] = 1.5
-    best_angles[0] = 1.6
+    best_angles = np.ones(len(env.action_space), dtype=np.float)
+    top_half = len(env.action_space)/2
+    best_angles[:top_half] = 2.0
+    best_angles[0] = 2.5
+
     #best_angles[len(env.action_space)/2:len(env.action_space)/3] = 2
     #best_angles[:len(env.action_space)/2] = 2.4
-    best_angles = best_angles/float(best_angles.sum())
+    best_angles = np.round(best_angles/float(best_angles.sum()), 2)
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
     actions_and_probs = sorted(unsorted_actions_and_probs, key=lambda tup: tup[0])
+    #print("Bearing is", bearing)
+    #print("GOAL")
+    #print(gy, gx)
+    #print("best action is", best_angles[0])
+    #print(actions_and_probs)
+    #print(env.angles)
 
     return actions_and_probs
 
@@ -180,11 +190,11 @@ def get_none_model(state_index, est_inds, true_states, cond_states):
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
             n_playouts=1000, rollout_length=20, estimator=get_vqvae_pcnn_model,
-            history_size=4, full_rollouts_every=10):
+            history_size=4):
         # use estimator for planning, if false, use env
         # make sure it does a full rollout the first time
-        self.last_full_rollout = full_rollouts_every*2
-        self.full_rollouts_every = full_rollouts_every
+        self.full_rollouts_every = rollout_length*2
+        self.last_full_rollout = self.full_rollouts_every*10
         self.env = env
         self.rdn = random_state
         self.node_probs_fn = node_probs_fn
@@ -255,6 +265,7 @@ class PMCTS(object):
             else:
                 # greedy select
                 # trys actions based on c_puct
+                logging.debug("GREEDY SELECT %s state_index" %state_index)
                 action, new_node = node.get_best(self.c_puct)
                 next_state, reward, finished, _ = self.env.step(state, state_index, action)
                 # time step
@@ -277,7 +288,7 @@ class PMCTS(object):
 
     def rollout_from_state(self, state, state_index):
         logging.debug('-------------------------------------------')
-        logging.debug('starting random rollout from state: {}'.format(state_index))
+        logging.debug('starting random rollout from state: {} limit {} rollout length'.format(state_index,self.rollout_length))
         #print('starting random rollout from state: {}'.format(state_index))
 
         # comes in already transformed
@@ -287,7 +298,8 @@ class PMCTS(object):
             return reward, rframes
         c = 0
         while not finished:
-            if c < self.rollout_length:
+            if state_index < self.last_state_index_est:
+                print("rollout state_index", state_index)
                 a, action_probs = self.get_rollout_action(state)
                 self.env.set_state(state, state_index)
                 ry,rx = self.env.get_robot_state(state)
@@ -428,8 +440,6 @@ class PMCTS(object):
             est_from = state_index+self.rollout_length
             pred_length = 1
             self.last_full_rollout += 1
-
-
         try:
             # put in the true road map for this step
             self.road_map_ests[state_index] = self.env.road_maps[state_index]
@@ -447,6 +457,7 @@ class PMCTS(object):
             print("estimate", est_from, est_to)
             print(s[est_from:est_to])
             rinds = range(est_from, est_to)
+            self.last_state_index_est = est_to
             if not len(rinds):
                 ests = []
             else:
@@ -516,19 +527,19 @@ class PMCTS(object):
         self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
         self.tree_subs_ = []
 
-def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes,
+def plot_playout_scatters(fname, true_env, base_path, model_type, seed, reward, sframes,
                          model_road_maps, rollout_length,
                          t,plot_error=False,gap=3,min_agents_alive=4, 
                          do_plot_playouts=False):
     true_road_maps = true_env.road_maps
     if plot_error:
-        fpath = os.path.join(base_path,model_type,'Eseed_{}'.format(seed))
+        fpath = os.path.join(base_path,model_type,'E_%s'%fname)
     else:
-        fpath = os.path.join(base_path,model_type,'Pseed_{}'.format(seed))
+        fpath = os.path.join(base_path,model_type,'P_%s'%fname)
 
     if not os.path.exists(fpath):
         os.makedirs(fpath)
-    fast_path = os.path.join(base_path,model_type,'Tseed_{}'.format(seed))
+    fast_path = os.path.join(base_path,model_type,'T_%s'%fname)
     if not os.path.exists(fast_path):
         os.makedirs(fast_path)
     for ts in range(len(sframes)):
@@ -579,9 +590,9 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
         if do_plot_playouts:
             for pn, pframe in enumerate(playouts):
                     if not c%gap:
-                        if c > 10:
-                            if pframe.sum()<(min_agents_alive*true_env.robot.color-1):
-                                continue
+                        #if c > 10:
+                        #    if pframe.sum()<(min_agents_alive*true_env.robot.color-1):
+                        #        continue
 
                         print("plotting step {}/{} playout step {}".format(ts,t,pn))
                         true_playout_frame = true_road_maps[pn]+pframe
@@ -631,7 +642,7 @@ def plot_playout_scatters(true_env, base_path, model_type, seed, reward, sframes
     #os.system(cmd)
 
 
-def run_trace(seed=3432, ysize=48, xsize=48, level=6,
+def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
         max_goal_distance=100, n_playouts=300,
         max_rollout_length=50, estimator='none',
         prob_fn=goal_node_probs_fn, history_size=4,
@@ -647,7 +658,8 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     # restart at same position every time
     rdn = np.random.RandomState(seed)
     true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
-    state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance, condition_length=history_size)
+    state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance, 
+                           condition_length=history_size, goal_speed_multiplier=args.goal_speed_multiplier )
 
     # fast forward history steps so agent observes 4
     t = history_size
@@ -667,20 +679,20 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     while not finished:
         states.append(state)
         ry,rx = true_env.get_robot_state(state)
-        try:
-            assert(state[1].max() == max_pixel)
-        except:
-            print("TRACE", t)
-            embed()
+        #try:
+        #    assert(state[1].max() == max_pixel)
+        #except:
+        #    print("TRACE", t)
+        #    embed()
         # search for best action
         st = time.time()
-        action = 4
         action, action_probs, playout_frames, playout_states, state_ests, state_est_indexes = pmcts.get_best_action(deepcopy(state), t)
         frames.append((true_env.get_state_plot(state), playout_frames))
         sframes.append((t, (ry,rx),  playout_states))
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
+        print("CHOSE ACTION", action)
 
         results['ests'].append(state_ests)
         results['est_inds'].append(state_est_indexes)
@@ -717,7 +729,7 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     plt.close()
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.save_plots:
-        plot_playout_scatters(true_env, 'trials', 
+        plot_playout_scatters(fname, true_env, 'trials', 
                           str(estimator), seed, reward, sframes,
                           pmcts.road_map_ests, pmcts.rollout_length,
                           len(sframes),plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4, do_plot_playouts=args.plot_playouts)
@@ -770,12 +782,13 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
+    parser.add_argument('-gs', '--goal_speed_multiplier', type=float , default=0.99)
     parser.add_argument('--save_pkl', action='store_false', default=True)
     parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--do_plot_error', action='store_false', default=True)
     parser.add_argument('--plot_playouts', action='store_true', default=False)
     parser.add_argument('--save_plots', action='store_true', default=False)
-    parser.add_argument('--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
+    parser.add_argument('-gap', '--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
     parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='options are goal or equal')
     #equal_node_probs_fn(
     args = parser.parse_args()
@@ -836,11 +849,12 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'yall_results_prior_%s_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(
+    fname = 'mall_results_prior_%s_model_%s_rollouts_%s_length_%s_prior_%s_level_%s_goalsx_%01.03f.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
                                     args.num_playouts,
-                                    args.rollout_steps,args.prior_fn)
+                                    args.rollout_steps,args.prior_fn, 
+                                    args.level, args.goal_speed_multiplier)
 
     if os.path.exists(fname):
         print('loading previous results from %s' %fname)
@@ -869,7 +883,7 @@ if __name__ == "__main__":
         print("STARTING EPISODE %s seed %s" %(i,seed))
         print(args.save_pkl)
         st = time.time()
-        r = run_trace(seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
+        r = run_trace(fname, seed=seed, ysize=args.ysize, xsize=args.xsize, level=args.level,
                       max_goal_distance=goal_dis, n_playouts=args.num_playouts,
                       max_rollout_length=args.rollout_steps,
                       prob_fn=prior, estimator=args.model_type,

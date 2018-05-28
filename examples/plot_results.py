@@ -13,18 +13,22 @@ def get_steps_won(pdict):
     seeds_won = np.array([p for p in seeds if pdict[p]['reward'] > 0])
     seeds_died = [p for p in seeds if pdict[p]['reward'] < 0]
     seeds_lost = np.array([p for p in seeds if pdict[p]['reward'] < 0])
-    steps = [len(pdict[seed]['actions']) for seed in seeds_won]
+    steps = np.array([len(pdict[seed]['actions']) for seed in seeds_won])
     seeds_tout = np.array([p for p in seeds if pdict[p]['reward'] == 0])
     print("PERCENT LOST", len(seeds_lost)/float(len(seeds)), len(seeds_lost), len(seeds))
     z = zip(seeds_won, steps)
     steps_sorted = sorted(z, key=lambda x: x[1])
     tms = [pdict[seed]['full_end_time'] - pdict[seed]['full_start_time'] for seed in seeds_won]
+    mean_times = np.mean(tms)
+
 
     return {'mean steps':np.mean(steps), 'median steps':np.median(steps),
             'max steps':np.max(steps), 'min_steps':np.min(steps),
             'var_steps':np.std(steps), 'num_tout':len(seeds_tout), 
-            'mean times':np.mean(tms), 'var times':np.std(tms),
+            'mean times':mean_times,  'var times':np.std(tms), 
+            'num_won':len(seeds_won), 
             'num_died':len(seeds_died),
+            'num_timeout':len(seeds_won)-len(seeds_lost),
              #'seed steps sorted':steps_sorted,
             'seeds_lost':seeds_lost}
 
@@ -62,13 +66,13 @@ def get_avg_time(pdict):
     return r
 
 
-files = sorted(glob('yall*equal*pkl'))
+files = sorted(glob('mall*pkl'))
 loaded = [(f,pickle.load(open(f,'r'))) for f in files ]
 for (f,l) in loaded:
     print(f)
     print(get_steps_won(l))
-    print(get_avg_reward(l))
-    print(get_num_games_won(l))
+    #print(get_avg_reward(l))
+    #print(get_num_games_won(l))
     #print(f,get_reward_won_games(l))
     print('------------------------------')
 

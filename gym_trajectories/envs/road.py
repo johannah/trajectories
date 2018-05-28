@@ -220,14 +220,21 @@ class RoadEnv():
         self.max_speed = .5
         # average speed
         # make max steps twice the steps required to cross diagonally across the road
-        self.max_steps = int(2*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
-        self.lose_reward = -2
+        self.max_steps = int(3*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
+        self.lose_reward = -10
         self.win_reward = np.abs(self.lose_reward)*2
         #      90
         #      |
         # 180 --- 0
         #      |
         #     270
+
+        #      
+        #      |
+        #   0 --- 
+        #      |
+        #     
+ 
         #self.angles = np.linspace(0, 180, 5)[::-1]
         #self.speeds = np.linspace(.1,self.max_speed,3)
         self.angles = np.linspace(-180, 180, num_angles, endpoint=False)
@@ -244,11 +251,12 @@ class RoadEnv():
         return self.lose_reward
 
     def get_win_reward(self, state_index):
+        print('win reward', state_index, self.win_reward+ self.get_step_penalty(state_index))
         return self.win_reward + self.get_step_penalty(state_index)
 
     def get_step_penalty(self, state_index):
         #print("step reward", state_index, self.max_steps, sr)
-        return -(state_index/float(self.max_steps))
+        return -(self.win_reward/2.0)*(state_index/float(self.max_steps))
 
     def get_goal_from_state(self, state):
         goal_loc = np.where(state[1] == self.goal.color)
@@ -257,7 +265,9 @@ class RoadEnv():
     def check_state(self, state, robot_is_alive, state_index):
         #assert(state[1].max() == max_pixel)
         if state_index > self.max_steps-2:
-            return True, self.get_step_penalty(state_index)
+            #return True, self.get_step_penalty(state_index)
+            # this makes it like the experiments that were run on the static one
+            return True, 0.0 #self.get_step_penalty(state_index)
         elif not robot_is_alive:
             return True, self.get_lose_reward(state_index)
         else:
@@ -363,7 +373,7 @@ class RoadEnv():
         goal_x = float(self.rdn.randint(goal_xmin,goal_xmax))
         self.goal_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
         goal_angle = self.rdn.choice(range(1, 359, 45))
-        goal_speed = self.max_speed*2
+        goal_speed = self.max_speed*self.goal_speed_multiplier
         self.goal = Particle(world=self, name='goal',
                               local_map=self.goal_maps[0],
                               init_y=goal_y, init_x=goal_x,
@@ -372,7 +382,9 @@ class RoadEnv():
                               ymarkersize=2,xmarkersize=2,
                               color=max_pixel)
 
-    def reset(self, goal_distance=1000, experiment_name="None", condition_length=0):
+    def reset(self, goal_distance=1000, experiment_name="None", condition_length=0, goal_speed_multiplier=0.9):
+
+        self.goal_speed_multiplier = goal_speed_multiplier
         self.experiment_name = experiment_name
         max_xcarsize = int(self.xsize*.15)
         self.road_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
@@ -405,6 +417,7 @@ class RoadEnv():
         [self.step_obstacles() for i in range(self.xsize)]
         # make all of the cars
         self.goals = []
+        self.no_goal_states = []
         for t in range(self.max_steps):
             self.step_obstacles()
             self.goal_maps[t] = self.goal.local_map
@@ -413,6 +426,9 @@ class RoadEnv():
             nz = self.road_map>0
             self.road_maps[t,nz] = self.road_map[nz]
             self.goals.append((self.goal.y, self.goal.x))
+            if self.road_maps[t].max() < self.goal.color:
+                self.no_goal_states.append(t)
+                print("INITIALIZED NO GOAL")
             #self.render([(0.4, 0.3), self.road_maps[t]])
         state = self.get_state(condition_length)
         if not self.robot.alive:
@@ -466,8 +482,7 @@ class RoadEnv():
     def get_state(self, state_index):
         road_map = self.get_road_state(state_index)
         if road_map.max() != max_pixel:
-            print("NO GOAL")
-            embed()
+            print("NO GOAL STEP ", state_index)
         rstate = (self.robot.y/float(self.ysize), self.robot.x/float(self.xsize))
         state = (rstate, road_map)
         return state
@@ -576,10 +591,11 @@ if __name__ == '__main__':
         seed = 40
         num_episodes = 3
     ysize, xsize = 48,48
-    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_moving_imgs_%sx%s/'%(dirname, ysize,xsize)
-    #save_path = '%s_imgs_%sx%s/'%(dirname, ysize,xsize)
+    save_path = '/localdata/jhansen/trajectories_frames/dataset/%s_fmoving_imgs_%sx%s/'%(dirname, ysize,xsize)
+    save_path = '%s_imgs_%sx%s/'%(dirname, ysize,xsize)
     rdn = np.random.RandomState(seed)
-    env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=6)
+    level=6
+    env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     for e in range(num_episodes):
