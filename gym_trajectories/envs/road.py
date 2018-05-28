@@ -1,6 +1,7 @@
 import matplotlib
 #matplotlib.use('TkAgg')
 import os
+from copy import deepcopy
 from subprocess import Popen
 import matplotlib.pyplot as plt
 import numpy as np
@@ -31,6 +32,10 @@ class Particle():
                  bounce=True, bounce_angle=45, entire_body_outside=True,
                  color=12, ymarkersize=3, xmarkersize=3):
 
+        # if object is bouncy - markersize offsets must be possitive! 
+        if bounce:
+            assert(ymarkersize>0)
+            assert(xmarkersize>0)
         self.clear_map = clear_map
         self.entire_body_outside = entire_body_outside
         self.bounce_angle=bounce_angle
@@ -58,9 +63,8 @@ class Particle():
                 self.angle+=np.sign(self.angle)*self.bounce_angle
             else:
                 #print("bounced", self.name, self.alive, self.y, self.x)
-                if self.name == 'robot':
-                    embed()
-                    print("ROBOT BOUNCED AND DIED")
+                #if self.name == 'robot':
+                #    print("ROBOT BOUNCED AND DIED")
                 self.alive = False
 
     def step(self, timestep):
@@ -213,10 +217,10 @@ class RoadEnv():
         self.experiment_name = "None"
 
         self.timestep = timestep
-        self.max_speed = .2
+        self.max_speed = .5
         # average speed
         # make max steps twice the steps required to cross diagonally across the road
-        self.max_steps = int(4*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
+        self.max_steps = int(2*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
         self.lose_reward = -2
         self.win_reward = np.abs(self.lose_reward)*2
         #      90
@@ -235,9 +239,6 @@ class RoadEnv():
         self.action_space = range(len(self.actions))
         self.road_map = np.zeros((self.ysize, self.xsize), np.uint8)
 
-    def get_distance_to_goal(self):
-        return np.sqrt((self.goal.y-self.robot.y)**2 + (self.goal.x-self.robot.x)**2)
-
     def get_lose_reward(self, state_index):
         # lose reward is negative make step reward positive
         return self.lose_reward
@@ -249,7 +250,12 @@ class RoadEnv():
         #print("step reward", state_index, self.max_steps, sr)
         return -(state_index/float(self.max_steps))
 
+    def get_goal_from_state(self, state):
+        goal_loc = np.where(state[1] == self.goal.color)
+        return goal_loc
+
     def check_state(self, state, robot_is_alive, state_index):
+        #assert(state[1].max() == max_pixel)
         if state_index > self.max_steps-2:
             return True, self.get_step_penalty(state_index)
         elif not robot_is_alive:
@@ -257,19 +263,23 @@ class RoadEnv():
         else:
             # check for collisions
             ry, rx = self.get_robot_state(state)
-            road_map = state[2]
+            rmap = deepcopy(state[1])
+            goal_loc = self.get_goal_from_state(state)
+            rmap[goal_loc] -= self.goal.color
             # if particle is able to collide with other agents
-            if road_map[ry,rx].sum()>0:
+            if rmap[ry,rx].sum()>0:
                 return True, self.get_lose_reward(state_index)
-            elif self.goal_maps[state_index][ry,rx]>0:
+            #elif self.goal_maps[state_index][ry,rx]>0:
+            elif (ry in goal_loc[0]) and (rx in goal_loc[1]):
+                print("MADE IT TO GOAL")
                 return True, self.get_win_reward(state_index)
             else:
                 return False, 0.0
 
 
     def get_robot_state(self,state):
-        ry = int(np.rint(state[1][0]*self.ysize))
-        rx = int(np.rint(state[1][1]*self.xsize))
+        ry = int(np.rint(state[0][0]*self.ysize))
+        rx = int(np.rint(state[0][1]*self.xsize))
         if ry>self.ysize-1:
             ry = self.ysize-1
         if rx>self.xsize-1:
@@ -280,18 +290,13 @@ class RoadEnv():
             ry = 0
         return (ry,rx)
 
-    def get_goal_state(self,state):
-        gy = state[0][0]*self.ysize
-        gx = state[0][1]*self.xsize
-        return (gy, gx)
-
-    def get_goal_bearing(self,state):
-        gy,gx = self.get_goal_state(state)
-        ry,rx = self.get_robot_state(state)
-        dy = gy-ry
-        dx = gx-rx
-        goal_angle = np.rad2deg(math.atan2(dy,dx))
-        return goal_angle
+#    def get_goal_bearing(self,state):
+#        gy,gx = self.get_goal_state(state)
+#        ry,rx = self.get_robot_state(state)
+#        dy = gy-ry
+#        dx = gx-rx
+#        goal_angle = np.rad2deg(math.atan2(dy,dx))
+#        return goal_angle
 
     def get_data_from_fig(self):
         data = np.fromstring(self.fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
@@ -367,7 +372,7 @@ class RoadEnv():
                               ymarkersize=2,xmarkersize=2,
                               color=max_pixel)
 
-    def reset(self, goal_distance=1000, experiment_name="None"):
+    def reset(self, goal_distance=1000, experiment_name="None", condition_length=0):
         self.experiment_name = experiment_name
         max_xcarsize = int(self.xsize*.15)
         self.road_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
@@ -376,11 +381,11 @@ class RoadEnv():
         plt.close()
 
         # robot shape
-        yrsize,xrsize=1,5
+        yrsize,xrsize=1,1
         self.safezone = yrsize*1
         init_ys = [0, self.ysize-(1+yrsize)]
         init_y = float(self.rdn.choice(init_ys))
-        init_x = float(self.rdn.randint(xrsize+1,self.xsize-(xrsize+1)))
+        init_x = float(self.rdn.randint(xrsize+5,self.xsize-(xrsize+5)))
         self.robot_map = np.zeros((self.ysize, self.xsize), np.uint8)
 
         self.robot = Particle(world=self,  name='robot',
@@ -393,12 +398,6 @@ class RoadEnv():
 
         # only allow goal to be so far away
         self.create_goal(goal_distance)
-        #bad_goal = True
-        #while bad_goal:
-        #    si = 0
-        #    s = self.get_state(si)
-        #    bad_goal, _ = self.check_state(s, True, si)
-
         self.configure_cars(max_xcarsize)
         self.obstacles = {}
         self.cnt = 0
@@ -414,13 +413,8 @@ class RoadEnv():
             nz = self.road_map>0
             self.road_maps[t,nz] = self.road_map[nz]
             self.goals.append((self.goal.y, self.goal.x))
-
-
-
-        #    s=self.get_state(t)
-        #    self.render(s,t)
-        # set steps to zero for the agent
-        state = self.get_state(0)
+            #self.render([(0.4, 0.3), self.road_maps[t]])
+        state = self.get_state(condition_length)
         if not self.robot.alive:
             print('robot died')
             embed()
@@ -471,35 +465,30 @@ class RoadEnv():
 
     def get_state(self, state_index):
         road_map = self.get_road_state(state_index)
-        #gstate = self.get_goal_state(state_index)
-        gy, gx = self.goals[state_index]
-        gstate = (gy/float(self.ysize), gx/float(self.xsize))
+        if road_map.max() != max_pixel:
+            print("NO GOAL")
+            embed()
         rstate = (self.robot.y/float(self.ysize), self.robot.x/float(self.xsize))
-        state = (gstate, rstate, road_map)
-        #state = [gstate,rstate]
+        state = (rstate, road_map)
         return state
 
     def set_state(self, state, state_index):
         self.robot.alive = True
-        ry = float(state[1][0]*self.ysize)
-        rx = float(state[1][1]*self.xsize)
+        robot_val = state[0]
+        ry = float(robot_val[0]*self.ysize)
+        rx = float(robot_val[1]*self.xsize)
         #print("want to set robot to", ry,rx)
         robot_alive = self.robot.set_state(ry,rx)
-        gy =  float(state[0][0]*self.ysize)
-        gx =  float(state[0][1]*self.xsize)
-        self.goal.set_state(gy,gx)
         finished, reward = self.check_state(state, robot_alive, state_index)
         return finished, reward
 
     def get_road_state(self, state_index):
         try:
-            assert(0 <= state_index)
-            assert(state_index < self.max_steps)
+            road_map = self.road_maps[state_index]
+            return road_map
         except Exception, e:
             print("ROAD STATE TOO MANY STEPS")
             embed()
-        road_map = self.road_maps[state_index]
-        return road_map
 
     def set_action_values_from_index(self, action_index):
         assert 0 <= action_index < len(self.action_space)
@@ -515,7 +504,6 @@ class RoadEnv():
         if finished:
             return state, reward, finished, ''
         else:
-            road_map = self.get_road_state(state_index)
             self.set_action_values_from_index(action_index)
             # road_maps is max_steps long
             # robot is alive will say if the robot ran into a wall
@@ -528,6 +516,7 @@ class RoadEnv():
 
             next_state_index = state_index + 1
             next_state = self.get_state(next_state_index)
+            #assert(next_state[1].max() == max_pixel)
             # reward for time step
             finished, reward = self.check_state(next_state, robot_is_alive, next_state_index)
             return next_state, reward, finished, ''
@@ -546,13 +535,10 @@ class RoadEnv():
     def get_state_plot(self, state):
         try:
             self.robot.alive = True
-            ry = float(state[1][0]*self.ysize)
-            rx = float(state[1][1]*self.xsize)
+            ry = float(state[0][0]*self.ysize)
+            rx = float(state[0][1]*self.xsize)
             self.robot.set_state(ry,rx)
-            gy =  float(state[0][0]*self.ysize)
-            gx =  float(state[0][1]*self.xsize)
-            self.goal.set_state(gy,gx)
-            show_state = state[2]+self.robot.local_map+self.goal.local_map
+            show_state = state[1]+self.robot.local_map#+self.goal.local_map
             if ry > 1000:
                 print("TOO BIG INPUT")
                 embed()
