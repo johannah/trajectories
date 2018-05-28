@@ -176,15 +176,13 @@ class RoadEnv():
         self.xsize = xsize
         self.experiment_name = "None"
 
-        self.lose_reward = -10
-        self.step_reward = 0
-        self.win_reward = 10
-        self.timeout_reward = 0
         self.timestep = timestep
-        self.max_speed = 1.0
+        self.max_speed = .2
         # average speed
         # make max steps twice the steps required to cross diagonally across the road
-        self.max_steps = int(3*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
+        self.max_steps = int(4*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
+        self.lose_reward = -2
+        self.win_reward = np.abs(self.lose_reward)*2
         #      90
         #      |
         # 180 --- 0
@@ -205,36 +203,33 @@ class RoadEnv():
         return np.sqrt((self.goal.y-self.robot.y)**2 + (self.goal.x-self.robot.x)**2)
 
     def get_lose_reward(self, state_index):
-        return self.lose_reward + self.lose_reward/float(state_index+1)
-        #return self.lose_reward
-
+        # lose reward is negative make step reward positive
+        return self.lose_reward
 
     def get_win_reward(self, state_index):
-        return self.win_reward + self.win_reward/float(state_index+1)
+        return self.win_reward + self.get_step_penalty(state_index) 
 
-    def get_timeout_reward(self, state_index):
-        return self.timeout_reward
+    def get_step_penalty(self, state_index):
+        #print("step reward", state_index, self.max_steps, sr)
+        return -(state_index/float(self.max_steps))
 
     def check_state(self, state, robot_is_alive, state_index):
-        lose_reward = self.get_lose_reward(state_index)
-        win_reward = self.get_win_reward(state_index)
-
-        if state_index > self.max_steps-4:
-            return True, self.timeout_reward 
+        if state_index > self.max_steps-2:
+            return True, self.get_step_penalty(state_index)
         elif not robot_is_alive:
-            return True, lose_reward
+            return True, self.get_lose_reward(state_index)
         else:
             # check for collisions
             ry, rx = self.get_robot_state(state)
             road_map = state[2]
             # if particle is able to collide with other agents
             if road_map[ry,rx].sum()>0:
-                # smaller lose if you lasted longer
-                return True, lose_reward
+                return True, self.get_lose_reward(state_index)
             elif self.goal_map[ry,rx].sum()>0:
-                return True, win_reward
+                return True, self.get_win_reward(state_index)
             else:
-                return False, self.step_reward
+                return False, 0.0
+
 
     def get_robot_state(self,state):
         ry = int(np.rint(state[1][0]*self.ysize))
@@ -419,11 +414,11 @@ class RoadEnv():
                                                      ymarkersize=self.car_ysize,
                                                      xmarkersize=car['xsize']*leading_edge)
                         self.cnt +=1
-
-    def set_road_maps(self, road_maps):
-        self.road_maps = road_maps
-        self.max_steps = len(self.road_maps)
-
+#
+#    def set_road_maps(self, road_maps):
+#        self.road_maps = road_maps
+#        self.max_steps = len(self.road_maps)
+#
     def get_state(self, state_index):
         road_map = self.get_road_state(state_index)
         gstate = (self.goal.y/float(self.ysize), self.goal.x/float(self.xsize))

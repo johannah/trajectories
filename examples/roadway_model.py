@@ -91,9 +91,11 @@ def goal_node_probs_fn(state, state_index, env):
     best_angles = sorted(actions_and_distances, key=lambda tup: tup[1])
     best_actions = [b[0] for b in best_angles]
     best_angles = np.ones(len(env.action_space))
-    best_angles[len(env.action_space)/2:len(env.action_space)/3] = 2
-    best_angles[:len(env.action_space)/2] = 2.4
-    best_angles[0] = 2.5
+    top_quarter = len(env.action_space)/4
+    best_angles[:top_quarter+1] = 1.5
+    #best_angles[len(env.action_space)/2:len(env.action_space)/3] = 2
+    #best_angles[:len(env.action_space)/2] = 2.4
+    #best_angles[0] = 2.5
     best_angles = best_angles/float(best_angles.sum())
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
@@ -207,7 +209,7 @@ class PMCTS(object):
         vstate = [state[0], state[1], self.road_map_ests[state_index]]
         frames.append((self.env.get_state_plot(state), self.env.get_state_plot(vstate)))
         # always use true state for first
-        finished,value = self.env.set_state(state, state_index)
+        finished,reward = self.env.set_state(state, state_index)
 
 
         while True:
@@ -222,20 +224,20 @@ class PMCTS(object):
                     # if you have a neural network - use it here to bootstrap the value
                     # otherwise, playout till the end
                     # rollout one randomly
-                    value, rframes = self.rollout_from_state(state, state_index)
+                    reward, rframes = self.rollout_from_state(state, state_index)
                     frames.extend(rframes)
                     finished = True
                 # finished the rollout
-                node.update(value)
-                if value > 0:
+                node.update(reward)
+                if reward > 0:
                     node.n_wins+=1
                     won = True
-                return won, frames, value
+                return won, frames, reward
             else:
                 # greedy select
                 # trys actions based on c_puct
                 action, new_node = node.get_best(self.c_puct)
-                next_state, value, finished, _ = self.env.step(state, state_index, action)
+                next_state, reward, finished, _ = self.env.step(state, state_index, action)
                 # time step
                 state_index +=1
                 # gets true step back
@@ -257,56 +259,53 @@ class PMCTS(object):
     def rollout_from_state(self, state, state_index):
         logging.debug('-------------------------------------------')
         logging.debug('starting random rollout from state: {}'.format(state_index))
+        #print('starting random rollout from state: {}'.format(state_index))
 
         # comes in already transformed
         rframes = []
-        #try:
-        if 1:
-            finished,value = self.env.set_state(state, state_index)
-            if finished:
-                return value, rframes
-            c = 0
-            while not finished:
-                if c < self.rollout_length:
-                    a, action_probs = self.get_rollout_action(state)
-                    self.env.set_state(state, state_index)
-                    ry,rx = self.env.get_robot_state(state)
-                    self.playout_states[state_index,ry,rx] = self.env.robot.color
-                    next_state, reward, finished,_ = self.env.step(state, state_index, a)
+        finished,reward = self.env.set_state(state, state_index)
+        if finished:
+            return reward, rframes
+        c = 0
+        while not finished:
+            if c < self.rollout_length:
+                a, action_probs = self.get_rollout_action(state)
+                self.env.set_state(state, state_index)
+                ry,rx = self.env.get_robot_state(state)
+                self.playout_states[state_index,ry,rx] = self.env.robot.color
+                #print("playout step", state_index)
+                next_state, reward, finished,_ = self.env.step(state, state_index, a)
+                #print("playout step end", state_index, reward)
 
-                    state_index+=1
-                    #next_vstate = [next_state[0], next_state[1], get_vq_from_road(next_state[2])]
-                    next_vstate = [next_state[0], next_state[1], self.road_map_ests[state_index]]
-                    # stack true state then vstate
-                    rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
-                    state = next_vstate
+                state_index+=1
+                next_vstate = [next_state[0], next_state[1], self.road_map_ests[state_index]]
+                rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
+                state = next_vstate
 
-                    # true and vq state
-                    c+=1
-                    if finished:
-                        logging.debug('finished rollout after {} steps with value {}'.format(c,value))
-                        value = reward
-                else:
-                    # stop early
-                    value = self.env.get_timeout_reward(c)
-                    logging.debug('stopping rollout after {} steps with value {}'.format(c,value))
-                    finished = True
+                # true and vq state
+                c+=1
+                if finished:
+                    logging.debug('finished rollout after {} steps with reward {}'.format(c,reward))
+                    #print('finished rollout after {} steps with reward {}'.format(c,reward))
+            else:
+                # stop early
+                #print('stopping rollout after {} steps with reward {}'.format(c,reward))
+                logging.debug('stopping rollout after {} steps with reward {}'.format(c,reward))
+                finished = True
 
-            logging.debug('-------------------------------------------')
-        #except Exception, e:
-        #    print(e)
-        #    embed()
-        return value, rframes
+        #logging.debug('-------------------------------------------')
+        #print('-------------------------------------------')
+        return reward, rframes
 
 
     def get_action_probs(self, state, state_index, temp=1e-2):
-        print("-----------------------------------")
+        #print("-----------------------------------")
         # low temp -->> argmax
         self.nodes_seen[state_index] = []
         won = 0
         logging.debug("starting playouts for state_index %s" %state_index)
         # only run last rollout
-        finished,value = self.env.set_state(state, state_index)
+        finished,_ = self.env.set_state(state, state_index)
         all_frames = {}
         self.playout_states = np.zeros((self.env.max_steps, self.env.ysize, self.env.xsize))
         if not finished:
@@ -338,7 +337,7 @@ class PMCTS(object):
             print(e)
             embed()
 
-        action_probs = softmax(1.0/temp*np.log(visits)+1e-10)
+        action_probs = softmax(1.0/temp*(np.log(visits)+1e-10))
         return actions, action_probs, all_frames
 
 
@@ -649,6 +648,7 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     print("SEED", seed)
     frames = []
     sframes = []
+    value = 0
     while not finished:
         states.append(state)
         ry,rx = true_env.get_robot_state(state)
@@ -685,9 +685,6 @@ def run_trace(seed=3432, ysize=48, xsize=48, level=6,
     if reward>0:
         print("robot won reward={} after {} steps".format(reward,t))
     else:
-        print("robot died reward={} after {} steps".format(reward,t))
-        print("robot died reward={} after {} steps".format(reward,t))
-        print("robot died reward={} after {} steps".format(reward,t))
         print("robot died reward={} after {} steps".format(reward,t))
         #embed()
     print("_____________________________________________________________________")
@@ -762,9 +759,10 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='options are goal or equal')
     #equal_node_probs_fn(
     args = parser.parse_args()
-    prior = equal_node_probs_fn
     if args.prior_fn == 'goal':
         prior = goal_node_probs_fn
+    else:
+        prior = equal_node_probs_fn
     use_cuda = args.cuda
     seed = args.seed
     dsize = 40
@@ -818,7 +816,8 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'all_results_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(
+    fname = 'yall_results_prior_%s_model_%s_rollouts_%s_length_%s_prior_%s.pkl' %(
+                                    args.prior_fn,
                                     args.model_type,
                                     args.num_playouts,
                                     args.rollout_steps,args.prior_fn)

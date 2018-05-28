@@ -186,7 +186,7 @@ def run_test(seed=3432, ysize=48, xsize=48, level=6,
 
     test = TestRollouts(env=deepcopy(true_env), rollout_length=max_rollout_length, history_size=history_size, estimator=estimator)
 
-    for t in range(history_size, true_env.road_maps.shape[0], 5):
+    for t in range(history_size, true_env.road_maps.shape[0], 40):
         print(t)
         test.estimate_the_future(true_env.road_maps[t], t)
 

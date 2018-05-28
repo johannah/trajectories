@@ -62,7 +62,7 @@ def get_avg_time(pdict):
     return r
 
 
-files = sorted(glob('all_results_model_*.pkl'))
+files = sorted(glob('yall*equal*pkl'))
 loaded = [(f,pickle.load(open(f,'r'))) for f in files ]
 for (f,l) in loaded:
     print(f)
