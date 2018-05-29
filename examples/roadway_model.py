@@ -109,11 +109,9 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     best_actions = [b[0] for b in best_angles]
 
     best_angles = np.ones(len(env.action_space), dtype=np.float)
-    top = len(env.action_space)/3
+    top = len(env.action_space)/2
     best_angles[:top] = 2.0
-    best_angles[:2] = 2.5
-    best_angles[0] = 3.0
-
+    best_angles[:2] = 2.25
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
@@ -320,7 +318,7 @@ class PMCTS(object):
 
                 #rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
                 state = next_vstate
-                print("next_state sum", state_index, state[1].sum())
+                #print("next_state sum", state_index, state[1].sum())
                 self.add_robot_playout(state, state_index, reward)
 
                 if state[1].sum() < 1:
@@ -358,7 +356,7 @@ class PMCTS(object):
             bonus = -10
         ry,rx = self.env.get_robot_state(state)
         relative_state = self.get_relative_index(state_index)
-        print('robot playout', self.start_state_index, state_index, relative_state)
+        #print('robot playout', self.start_state_index, state_index, relative_state)
         try:
             self.playout_robots[relative_state,ry,rx] = self.env.robot.color+bonus
         except Exception, e:
@@ -476,11 +474,11 @@ class PMCTS(object):
             cond_to = est_from
             # end of conditioning
             cond_from = cond_to-self.history_size
-            print("state index", state_index)
-            print("condition", cond_from, cond_to)
-            print(s[cond_from:cond_to])
-            print("estimate", est_from, est_to)
-            print(range(est_from, est_to))
+            #print("state index", state_index)
+            #print("condition", cond_from, cond_to)
+            #print(s[cond_from:cond_to])
+            #print("estimate", est_from, est_to)
+            #print(range(est_from, est_to))
             rinds = range(est_from, est_to)
             self.last_state_index_est = est_to
             if not len(rinds):
@@ -491,7 +489,7 @@ class PMCTS(object):
                 ests = self.estimator(state_index, rinds, self.env.road_maps, cond_frames)
                 self.road_map_ests[rinds] = ests
                 est_inds = range(state_index,est_to)
-                print('this_rollout', est_inds) #should be rollout_length +1 for the current_state
+                #print('this_rollout', est_inds) #should be rollout_length +1 for the current_state
                 self.playout_road_maps = self.road_map_ests[est_inds]
                 self.playout_goal_locs = []
                 for i, rm in enumerate(self.playout_road_maps):
@@ -606,8 +604,8 @@ def plot_playout_scatters(true_env, base_path,  fname,
             playout_robot_states = step_frame['playout_robot_states']
             playout_model_states = step_frame['playout_model_states']
             num_playout_steps = playout_model_states.shape[0]
-            for playout_ind in range(1, num_playout_steps):
-                playout_state_index = state_index+playout_ind
+            for playout_ind in range(num_playout_steps):
+                playout_state_index = min(state_index+playout_ind, true_road_maps.shape[0]-1)
                 print("plotting playout state_index {} - {} step {}/{}".format(state_index, playout_state_index, playout_ind, num_playout_steps))
 
                 true_playout_frame = true_road_maps[playout_state_index]+playout_robot_states[playout_ind]
@@ -636,8 +634,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
     sof = open(sh_path, 'w')
     sof.write(cmd)
     sof.close()
-
-    #os.system(cmd)
+    print("FINISHED WRITING TO", os.path.split(sh_path)[0])
 
     fast_gif_path = 'fast_seed'.format(seed)
     cmd = 'convert -delay 1/30 *.png %s\n'%(fast_gif_path)
@@ -645,8 +642,8 @@ def plot_playout_scatters(true_env, base_path,  fname,
     of = open(fast_sh_path, 'w')
     of.write(cmd)
     of.close()
+    print("FINISHED WRITING TO", os.path.split(fast_sh_path)[0])
 
-    #os.system(cmd)
 
 
 def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
@@ -664,9 +661,9 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     states = []
     # restart at same position every time
     rdn = np.random.RandomState(seed)
-    true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
+    true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level, agent_max_speed=args.agent_max_speed)
     state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance, 
-                           condition_length=history_size, goal_speed_multiplier=args.goal_speed_multiplier )
+                           condition_length=history_size, goal_speed=args.goal_speed)
 
     # fast forward history steps so agent observes 4
     t = history_size
@@ -742,7 +739,7 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.save_plots:
 
-        plot_playout_scatters(true_env, 'trials', fname, 
+        plot_playout_scatters(true_env, 'trials', fname.replace('.pkl',''), 
                           str(estimator), seed, reward, 
                           playout_frames=playout_frames,
                           model_road_maps=pmcts.road_map_ests, 
@@ -801,7 +798,8 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
-    parser.add_argument('-gs', '--goal_speed_multiplier', type=float , default=0.99)
+    parser.add_argument('-gs', '--goal_speed', type=float , default=0.5)
+    parser.add_argument('-as', '--agent_max_speed', type=float , default=0.75)
     parser.add_argument('--save_pkl', action='store_false', default=True)
     parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--do_plot_error', action='store_false', default=True)
@@ -868,12 +866,12 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'mall_results_prior_%s_model_%s_rollouts_%s_length_%s_prior_%s_level_%s_goalsx_%01.03f.pkl' %(
+    fname = 'mall_results_prior_%s_model_%s_rollouts_%s_length_%s_prior_%s_level_%s_as_%01.02f_gs_%01.02f.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
                                     args.num_playouts,
                                     args.rollout_steps,args.prior_fn, 
-                                    args.level, args.goal_speed_multiplier)
+                                    args.level, args.agent_max_speed, args.goal_speed)
 
     if os.path.exists(fname):
         print('loading previous results from %s' %fname)

@@ -207,7 +207,7 @@ class Particle():
 
 class RoadEnv():
     def __init__(self, random_state, ysize=40, xsize=40,
-                 timestep=1,level=1, num_angles=8):
+                 timestep=1,level=1, num_angles=8, agent_max_speed=1.0):
         # TODO - what if episode already exists in savedir
         self.rdn = random_state
         self.level=level
@@ -217,8 +217,7 @@ class RoadEnv():
         self.experiment_name = "None"
 
         self.timestep = timestep
-        #self.max_speed = .5
-        self.max_speed = 1.0
+        self.max_speed = agent_max_speed
         # average speed
         # make max steps twice the steps required to cross diagonally across the road
         self.max_steps = int(3*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
@@ -376,19 +375,21 @@ class RoadEnv():
         goal_x = float(self.rdn.randint(goal_xmin,goal_xmax))
         self.goal_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
         goal_angle = self.rdn.choice(range(1, 359, 45))
-        #goal_speed = self.max_speed*self.goal_speed_multiplier
-        goal_speed = 0.5*self.goal_speed_multiplier
         self.goal = Particle(world=self, name='goal',
                               local_map=self.goal_maps[0],
                               init_y=goal_y, init_x=goal_x,
-                              angle=goal_angle, speed=goal_speed, clear_map=True,
+                              angle=goal_angle, speed=self.goal_speed, 
+                              clear_map=True,
                               bounce=True, entire_body_outside=False,
                               ymarkersize=2,xmarkersize=2,
                               color=max_pixel)
 
-    def reset(self, goal_distance=1000, experiment_name="None", condition_length=0, goal_speed_multiplier=0.9):
+    def reset(self, goal_distance=1000, experiment_name="None", condition_length=0, goal_speed=0.5):
 
-        self.goal_speed_multiplier = goal_speed_multiplier
+        if goal_speed != 0.5:
+            print("WARNING GOAL SPEED ISNT 0.5")
+            embed()
+        self.goal_speed = goal_speed 
         self.experiment_name = experiment_name
         max_xcarsize = int(self.xsize*.15)
         self.road_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
