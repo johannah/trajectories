@@ -97,7 +97,7 @@ def get_relative_bearing(gy, gx, ry, rx):
 def goal_node_probs_fn(state, state_index, env, goal_loc):
     # TODO make env take in state to give goal/robot
     if not len(goal_loc[0]):
-        print('couldnt find goal in given state estimate')       
+        print('couldnt find goal in given state estimate')
         return equal_node_probs_fn(state, state_index, env, goal_loc)
 
     gy, gx = goal_loc[0][0], goal_loc[1][0]
@@ -341,7 +341,7 @@ class PMCTS(object):
 
 
     def reset_playout_states(self, start_state_index):
-        self.start_state_index = start_state_index 
+        self.start_state_index = start_state_index
         self.playout_robots = np.zeros((self.rollout_length+1, self.env.ysize, self.env.xsize))
         self.playout_road_maps = np.zeros((self.rollout_length+1, self.env.ysize, self.env.xsize))
 
@@ -546,11 +546,11 @@ def get_error_frame(true_road, model_road):
 
 
 
-def plot_playout_scatters(true_env, base_path,  fname, 
-                         model_type, 
-                         seed, reward, playout_frames, 
+def plot_playout_scatters(true_env, base_path,  fname,
+                         model_type,
+                         seed, reward, playout_frames,
                          model_road_maps, rollout_length,
-                         plot_error=True, gap=3, min_agents_alive=4, 
+                         plot_error=True, gap=3, min_agents_alive=4,
                          do_plot_playouts=False, history_size=4):
     plt.ioff()
     true_road_maps = true_env.road_maps
@@ -582,7 +582,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
         model_state = model_road_maps[state_index]
         vstate = ((ry,rx), model_state)
         model_frame = true_env.get_state_plot(vstate)
-        
+
         model_error = get_error_frame(deepcopy(true_env.road_maps[state_index]), deepcopy(model_road_maps[state_index]))
 
 
@@ -662,7 +662,7 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     # restart at same position every time
     rdn = np.random.RandomState(seed)
     true_env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level, agent_max_speed=args.agent_max_speed)
-    state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance, 
+    state = true_env.reset(experiment_name=seed, goal_distance=max_goal_distance,
                            condition_length=history_size, goal_speed=args.goal_speed)
 
     # fast forward history steps so agent observes 4
@@ -694,8 +694,8 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
         action, action_probs = pmcts.get_best_action(deepcopy(state), t)
         #JRH
         #frames.append((true_env.get_state_plot(state), this_playout_frames))
-        playout_frames.append({'state_index':t, 'robot_yx':(ry,rx), 
-                             'playout_robot_states':deepcopy(pmcts.playout_robots), 
+        playout_frames.append({'state_index':t, 'robot_yx':(ry,rx),
+                             'playout_robot_states':deepcopy(pmcts.playout_robots),
                              'playout_model_states':deepcopy(pmcts.playout_road_maps),
                              })
         et = time.time()
@@ -739,15 +739,15 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.save_plots:
 
-        plot_playout_scatters(true_env, 'trials', fname.replace('.pkl',''), 
-                          str(estimator), seed, reward, 
+        plot_playout_scatters(true_env, 'trials', fname.replace('.pkl',''),
+                          str(estimator), seed, reward,
                           playout_frames=playout_frames,
-                          model_road_maps=pmcts.road_map_ests, 
+                          model_road_maps=pmcts.road_map_ests,
                           rollout_length=pmcts.rollout_length,
                           plot_error=args.do_plot_error,
                           gap=args.plot_playout_gap,
-                          min_agents_alive=4, 
-                          do_plot_playouts=args.plot_playouts, 
+                          min_agents_alive=4,
+                          do_plot_playouts=args.plot_playouts,
                           history_size=history_size)
     return results
 
@@ -761,9 +761,7 @@ if __name__ == "__main__":
     # false negs over 10 steps  for seed 35 [17, 21, 26, 25, 32, 40, 38, 38, 39, 41]
     #vq_name = 'vqvae4layer_base_k512_z32_dse00025.pkl'
     # train loss .034, test_loss sum .0355 epoch 51
-    vq_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
-    default_vqvae_model_loadpath = os.path.join(default_base_savedir,
-            vq_name)
+    vq_static_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
     # train loss of .39, epoch 31
     #pcnn_name = 'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl'
     # false negs over 10 steps for seed 35
@@ -771,29 +769,27 @@ if __name__ == "__main__":
     # [10, 12, 13, 12, 19, 27, 30, 33, 36, 38]
     # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     # train loss of 1.09, test loss 1.25 epoch 10
-    pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
+    pcnn_static_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
     # false negs over 10 steps for seed 35
     # [13, 13, 16, 13, 23, 29, 31, 36, 35, 37]
     # [12, 12, 15, 16, 23, 29, 31, 33, 35, 38]
     # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     # [27, 23, 26, 27, 30, 29, 32, 32, 26, 26]
     #pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00026.pkl'
-    default_pcnn_model_loadpath = os.path.join(default_base_savedir,
-             pcnn_name)
-
-
+    vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
+    pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
-    parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num traces to run')
+    parser.add_argument('-e', '--num_episodes', type=int, default=500, help='num traces to run')
     parser.add_argument('-y', '--ysize', type=int, default=48, help='pixel size of game in y direction')
     parser.add_argument('-x', '--xsize', type=int, default=48, help='pixel size of game in x direction')
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
     parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
-    parser.add_argument('-p', '--num_playouts', type=int, default=50, help='number of playouts for each step')
-    parser.add_argument('-r', '--rollout_steps', type=int, default=5, help='limit number of steps taken be random rollout')
-    parser.add_argument('-vq', '--vqvae_model_loadpath', type=str, default=default_vqvae_model_loadpath)
-    parser.add_argument('-pcnn', '--pcnn_model_loadpath', type=str, default=default_pcnn_model_loadpath)
+    parser.add_argument('-p', '--num_playouts', type=int, default=200, help='number of playouts for each step')
+    parser.add_argument('-r', '--rollout_steps', type=int, default=10, help='limit number of steps taken be random rollout')
+    #parser.add_argument('-vq', '--vqvae_model_loadpath', type=str, default=default_vqvae_model_loadpath)
+    #parser.add_argument('-pcnn', '--pcnn_model_loadpath', type=str, default=default_pcnn_model_loadpath)
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
@@ -807,8 +803,18 @@ if __name__ == "__main__":
     parser.add_argument('--save_plots', action='store_true', default=False)
     parser.add_argument('-gap', '--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
     parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='options are goal or equal')
-    #equal_node_probs_fn(
+
     args = parser.parse_args()
+    if args.goal_speed == 0.5:
+        print("MOVING")
+        default_pcnn_model_loadpath = os.path.join(default_base_savedir, pcnn_moving_name)
+        default_vqvae_model_loadpath = os.path.join(default_base_savedir, vq_moving_name)
+    else:
+        print("STATIC")
+        default_pcnn_model_loadpath = os.path.join(default_base_savedir, pcnn_static_name)
+        default_vqvae_model_loadpath = os.path.join(default_base_savedir, vq_static_name)
+
+    #equal_node_probs_fn(
     if args.prior_fn == 'goal':
         prior = goal_node_probs_fn
     else:
@@ -835,29 +841,27 @@ if __name__ == "__main__":
     cond_size = history_size*DIM
 
     if args.model_type == 'vqvae_pcnn_model':
-        if os.path.exists(args.vqvae_model_loadpath):
+        if os.path.exists(default_vqvae_model_loadpath):
             vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=num_z).to(DEVICE)
-            vqvae_model_dict = torch.load(args.vqvae_model_loadpath, map_location=lambda storage, loc: storage)
+            vqvae_model_dict = torch.load(default_vqvae_model_loadpath, map_location=lambda storage, loc: storage)
             vmodel.load_state_dict(vqvae_model_dict['state_dict'])
             epoch = vqvae_model_dict['epochs'][-1]
             print('loaded checkpoint at epoch: {} from {}'.format(epoch,
-                                                   args.vqvae_model_loadpath))
+                                                   default_vqvae_model_loadpath))
         else:
-            print('could not find checkpoint at {}'.format(args.vqvae_model_loadpath))
+            print('could not find checkpoint at {}'.format(default_vqvae_model_loadpath))
             sys.exit()
 
-
-
-        if os.path.exists(args.pcnn_model_loadpath):
+        if os.path.exists(default_pcnn_model_loadpath):
             pcnn_model = GatedPixelCNN(num_clusters, DIM, N_LAYERS,
                     history_size, spatial_cond_size=cond_size).to(DEVICE)
-            pcnn_model_dict = torch.load(args.pcnn_model_loadpath, map_location=lambda storage, loc: storage)
+            pcnn_model_dict = torch.load(default_pcnn_model_loadpath, map_location=lambda storage, loc: storage)
             pcnn_model.load_state_dict(pcnn_model_dict['state_dict'])
             epoch = pcnn_model_dict['epochs'][-1]
             print('loaded checkpoint at epoch: {} from {}'.format(epoch,
-                                                   args.pcnn_model_loadpath))
+                                                   default_pcnn_model_loadpath))
         else:
-            print('could not find checkpoint at {}'.format(args.pcnn_model_loadpath))
+            print('could not find checkpoint at {}'.format(default_pcnn_model_loadpath))
             sys.exit()
 
     goal_dis = args.max_goal_distance
@@ -870,7 +874,7 @@ if __name__ == "__main__":
                                     args.prior_fn,
                                     args.model_type,
                                     args.num_playouts,
-                                    args.rollout_steps,args.prior_fn, 
+                                    args.rollout_steps,args.prior_fn,
                                     args.level, args.agent_max_speed, args.goal_speed)
 
     if os.path.exists(fname):
@@ -890,7 +894,7 @@ if __name__ == "__main__":
 
     for i in range(args.num_episodes):
         if ((seed in all_results.keys()) and args.save_pkl):
-            rew = all_results[seed]['reward'] 
+            rew = all_results[seed]['reward']
             print("seed %s already in results, score was %s" %(seed,rew))
             if rew>=0:
                 seed +=1
