@@ -111,7 +111,8 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     best_angles = np.ones(len(env.action_space), dtype=np.float)
     top = len(env.action_space)/2
     best_angles[:top] = 2.0
-    best_angles[:2] = 2.25
+    best_angles[1] = 2.5
+    best_angles[0] = 3.0
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
