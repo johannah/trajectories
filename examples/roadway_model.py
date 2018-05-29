@@ -274,7 +274,7 @@ class PMCTS(object):
                 # cant actually use next state because we dont know it
                 next_state_index = state_index + 1
                 vnext_road_map = self.road_map_ests[next_state_index]
-                next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map) 
+                next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map)
                 cnt+=1
                 node = new_node
                 state = next_vstate
@@ -316,7 +316,7 @@ class PMCTS(object):
                 #self.env.set_state(state, state_index)
                 next_state_index = state_index + 1
                 vnext_road_map = self.road_map_ests[next_state_index]
-                next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map) 
+                next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map)
                 state_index = next_state_index
                 state = next_vstate
                 # get robot location from previous step
@@ -449,7 +449,7 @@ class PMCTS(object):
 
         print('false neg is', false_neg_count)
         # false_neg_count is ~ 25 when the pcnn predicts all zeros
-        print('local false neg is', local_false_neg_count)
+        print('local false neg is', local_false_neg_count, 'last full rollout', self.last_full_rollout)
 
         if (local_false_neg_count > 0) or (false_neg_count > 15) or (self.last_full_rollout > self.full_rollouts_every):
             self.last_full_rollout = 0
@@ -775,7 +775,8 @@ if __name__ == "__main__":
     # [27, 23, 26, 27, 30, 29, 32, 32, 26, 26]
     #pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00026.pkl'
     vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
-    pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
+    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
+    pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
@@ -862,18 +863,25 @@ if __name__ == "__main__":
             print('could not find checkpoint at {}'.format(default_pcnn_model_loadpath))
             sys.exit()
 
+    else:
+        default_vqvae_model_loadpath = 'na.pkl'
+        default_pcnn_model_loadpath = 'na.pkl'
+
     goal_dis = args.max_goal_distance
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f.pkl' %(
+    fname = 'end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
+                                    default_vqvae_model_loadpath.replace('.pkl', ''),
+                                    default_pcnn_model_loadpath.replace('.pkl', ''),
                                     args.num_playouts,
                                     args.rollout_steps,
-                                    args.level, args.agent_max_speed, args.goal_speed)
+                                    args.level, args.agent_max_speed, args.goal_speed,
+                                    args.max_goal_distance)
 
     if os.path.exists(fname):
         print('loading previous results from %s' %fname)
