@@ -94,13 +94,11 @@ def get_relative_bearing(gy, gx, ry, rx):
     dx = gx-rx
     return np.rad2deg(math.atan2(dy,dx))
 
-def goal_node_probs_fn(state, state_index, env):
+def goal_node_probs_fn(state, state_index, env, goal_loc):
     # TODO make env take in state to give goal/robot
-    goal_loc = env.get_goal_from_state(state)
     if not len(goal_loc[0]):
-        print('couldnt find goal in given state estimate')
-        embed()
-        return equal_node_probs_fn(state, state_index, env)
+        print('couldnt find goal in given state estimate')       
+        return equal_node_probs_fn(state, state_index, env, goal_loc)
 
     gy, gx = goal_loc[0][0], goal_loc[1][0]
     ry, rx = env.get_robot_state(state)
@@ -109,13 +107,13 @@ def goal_node_probs_fn(state, state_index, env):
     actions_and_distances = list(zip(env.action_space, action_distances))
     best_angles = sorted(actions_and_distances, key=lambda tup: tup[1])
     best_actions = [b[0] for b in best_angles]
-    best_angles = np.ones(len(env.action_space), dtype=np.float)
-    top_half = len(env.action_space)/2
-    best_angles[:top_half] = 2.0
-    best_angles[0] = 2.5
 
-    #best_angles[len(env.action_space)/2:len(env.action_space)/3] = 2
-    #best_angles[:len(env.action_space)/2] = 2.4
+    best_angles = np.ones(len(env.action_space), dtype=np.float)
+    top = len(env.action_space)/3
+    best_angles[:top] = 2.0
+    best_angles[:2] = 2.5
+    best_angles[0] = 3.0
+
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
@@ -123,13 +121,11 @@ def goal_node_probs_fn(state, state_index, env):
     #print("Bearing is", bearing)
     #print("GOAL")
     #print(gy, gx)
-    #print("best action is", best_angles[0])
-    #print(actions_and_probs)
-    #print(env.angles)
-
+    #print("best action is", best_angles[0], best_angles[0])
+    #print(zip(env.angles, actions_and_probs))
     return actions_and_probs
 
-def equal_node_probs_fn(state, state_index, env):
+def equal_node_probs_fn(state, state_index, env, gm):
     probs = np.ones(len(env.action_space))/float(len(env.action_space))
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
@@ -228,6 +224,7 @@ class PMCTS(object):
         # only sets robot and goal states
         # get future playouts from past states
 
+        cnt = 0
         logging.debug('+++++++++++++START PLAYOUT NUM: {} FOR STATE: {}++++++++++++++'.format(playout_num,state_index))
         init_state = state
         init_state_index = state_index
@@ -241,41 +238,45 @@ class PMCTS(object):
         finished,reward = self.env.set_state(state, state_index)
 
 
-        while True:
-            ry,rx = self.env.get_robot_state(state)
-            self.playout_states[state_index,ry,rx] = self.env.robot.color
+        while state_index < self.last_state_index_est-1:
             if node.is_leaf():
                 if not finished:
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
-                    actions_and_probs = self.node_probs_fn(state, state_index, self.env)
+                    gl = self.playout_goal_locs[self.get_relative_index(state_index)]
+                    actions_and_probs = self.node_probs_fn(state, state_index, self.env, gl)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
                     # otherwise, playout till the end
                     # rollout one randomly
-                    reward, rframes = self.rollout_from_state(state, state_index)
-                    frames.extend(rframes)
+                    reward = self.rollout_from_state(state, state_index, cnt)
+                    #frames.extend(rframes)
                     finished = True
                 # finished the rollout
                 node.update(reward)
                 if reward > 0:
                     node.n_wins+=1
                     won = True
-                return won, frames, reward
+                return won, reward
             else:
                 # greedy select
                 # trys actions based on c_puct
                 logging.debug("GREEDY SELECT %s state_index" %state_index)
                 action, new_node = node.get_best(self.c_puct)
-                next_state, reward, finished, _ = self.env.step(state, state_index, action)
-                # time step
+                # cant actually use next state because we dont know it
+                ns, _, finished, _ = self.env.step(state, state_index, action)
+                next_vstate = [ns[0], self.road_map_ests[state_index]]
                 state_index +=1
+                finished, reward = self.env.check_state(next_vstate, self.env.robot.alive, state_index)
+                cnt+=1
+                # time step
                 # gets true step back
-                next_vstate = [next_state[0], self.road_map_ests[state_index]]
                 # stack true state then vstate
-                frames.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
+                #frames.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
                 node = new_node
                 state = next_vstate
+                self.add_robot_playout(state, state_index, reward)
+
 
     def get_rollout_action(self, state):
         valid_actions = self.env.action_space
@@ -286,32 +287,46 @@ class PMCTS(object):
         act = self.rdn.choice(acts, p=probs)
         return act, act_probs
 
-    def rollout_from_state(self, state, state_index):
+    def rollout_from_state(self, state, state_index, cnt):
         logging.debug('-------------------------------------------')
         logging.debug('starting random rollout from state: {} limit {} rollout length'.format(state_index,self.rollout_length))
         #print('starting random rollout from state: {}'.format(state_index))
 
         # comes in already transformed
-        rframes = []
+        #rframes = []
         finished,reward = self.env.set_state(state, state_index)
         if finished:
-            return reward, rframes
+            return reward#, rframes
         c = 0
         while not finished:
-            if state_index < self.last_state_index_est:
-                print("rollout state_index", state_index)
+            # one less because we want next_state to be modeled
+            if state_index < self.last_state_index_est-1:
+
+                if state[1].sum() < 1:
+                    print("before rollout state has no sum!", state_index)
+                    embed()
+
+
+                #print("rollout state_index", state_index)
                 a, action_probs = self.get_rollout_action(state)
+
                 self.env.set_state(state, state_index)
-                ry,rx = self.env.get_robot_state(state)
-                self.playout_states[state_index,ry,rx] = self.env.robot.color
-                #print("playout step", state_index)
-                next_state, reward, finished,_ = self.env.step(state, state_index, a)
-                #print("playout step end", state_index, reward)
+                ns, _, _, _ = self.env.step(state, state_index, a)
 
                 state_index+=1
-                next_vstate = [next_state[0], self.road_map_ests[state_index]]
-                rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
+                # get robot location from previous step
+                next_vstate = [ns[0], self.road_map_ests[state_index]]
+                finished, reward = self.env.check_state(next_vstate, self.env.robot.alive, state_index)
+
+                #rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
                 state = next_vstate
+                print("next_state sum", state_index, state[1].sum())
+                self.add_robot_playout(state, state_index, reward)
+
+                if state[1].sum() < 1:
+                    print("rollout next_state has no sum!", state_index)
+                    embed()
+
 
                 # true and vq state
                 c+=1
@@ -324,9 +339,32 @@ class PMCTS(object):
                 logging.debug('stopping rollout after {} steps with reward {}'.format(c,reward))
                 finished = True
 
-        #logging.debug('-------------------------------------------')
-        #print('-------------------------------------------')
-        return reward, rframes
+        return reward
+
+
+    def reset_playout_states(self, start_state_index):
+        self.start_state_index = start_state_index 
+        self.playout_robots = np.zeros((self.rollout_length+1, self.env.ysize, self.env.xsize))
+        self.playout_road_maps = np.zeros((self.rollout_length+1, self.env.ysize, self.env.xsize))
+
+    def get_relative_index(self, state_index):
+        return state_index-self.start_state_index
+
+    def add_robot_playout(self, state, state_index, bonus):
+        # bonus - can feed in reward and we will convert it to pixel color
+        if bonus > 1:
+            bonus = 1
+        if bonus < 1:
+            bonus = -10
+        ry,rx = self.env.get_robot_state(state)
+        relative_state = self.get_relative_index(state_index)
+        print('robot playout', self.start_state_index, state_index, relative_state)
+        try:
+            self.playout_robots[relative_state,ry,rx] = self.env.robot.color+bonus
+        except Exception, e:
+            print(e, 'rob')
+            embed()
+
 
 
     def get_action_probs(self, state, state_index, temp=1e-2):
@@ -336,27 +374,13 @@ class PMCTS(object):
         won = 0
         logging.debug("starting playouts for state_index %s" %state_index)
         # only run last rollout
-        finished,_ = self.env.set_state(state, state_index)
-        all_frames = {}
-        self.playout_states = np.zeros((self.env.max_steps, self.env.ysize, self.env.xsize))
+        finished,rr = self.env.set_state(state, state_index)
+        self.add_robot_playout(state, state_index, rr)
         if not finished:
             for n in range(self.n_playouts):
                 from_state = deepcopy(state)
                 from_state_index = deepcopy(state_index)
-                w, fs, v = self.playout(n, from_state, from_state_index)
-                if len(all_frames.keys())>2:
-                    vs = [k[1] for k in all_frames.keys()]
-                    if v > min(vs):
-                        varg = np.argmin(vs)
-                        bad = all_frames.keys()[varg]
-                        del all_frames[bad]
-                        all_frames[(n,v)] = fs
-                        #print('adding', (n, v))
-                        #print('deleting', bad)
-                        #print(all_frames.keys())
-                else:
-                    all_frames[(n,v)] = fs
-                won+=w
+                self.playout(n, from_state, from_state_index)
         else:
             logging.info("GIVEN STATE WHICH WILL DIE - state index {} max env {}".format(state_index, self.env.max_steps))
         self.env.set_state(state, state_index)
@@ -369,7 +393,7 @@ class PMCTS(object):
             embed()
 
         action_probs = softmax(1.0/temp*np.log(visits))
-        return actions, action_probs, all_frames
+        return actions, action_probs
 
 
     def sample_action(self, state, state_index, temp=1E-3, add_noise=True,
@@ -417,6 +441,7 @@ class PMCTS(object):
         return local_false_neg_count
 
     def estimate_the_future(self, state, state_index):
+        self.reset_playout_states(state_index)
         #######################
         # determine how different the predicted was from true for the last state
         # pred_road should be all zero if no cars have been predicted
@@ -455,7 +480,7 @@ class PMCTS(object):
             print("condition", cond_from, cond_to)
             print(s[cond_from:cond_to])
             print("estimate", est_from, est_to)
-            print(s[est_from:est_to])
+            print(range(est_from, est_to))
             rinds = range(est_from, est_to)
             self.last_state_index_est = est_to
             if not len(rinds):
@@ -465,32 +490,16 @@ class PMCTS(object):
                 cond_frames = self.road_map_ests[cond_from:cond_to]
                 ests = self.estimator(state_index, rinds, self.env.road_maps, cond_frames)
                 self.road_map_ests[rinds] = ests
-
-            #for aa in rinds:
-            #    print("STATE", state_index, "ADDDED", aa)
-            #    try:
-            #        tra = self.env.road_maps[aa]
-            #        tre = self.road_map_ests[aa]
-            #        assert np.abs(tra-tre).sum() == 0
-            #    except Exception, e:
-            #        print(e)
-            #        print('not equal', state_index, aa)
-            #        print(tra.sum())
-            #        print(tre.sum())
-            #        embed()
+                est_inds = range(state_index,est_to)
+                print('this_rollout', est_inds) #should be rollout_length +1 for the current_state
+                self.playout_road_maps = self.road_map_ests[est_inds]
+                self.playout_goal_locs = []
+                for i, rm in enumerate(self.playout_road_maps):
+                    self.playout_goal_locs.append(self.env.get_goal_from_roadmap(rm))
             false_negs = []
             for xx, i in enumerate(rinds):
                 fnc,fn = self.get_false_neg_counts(i)
                 false_negs.append(fnc)
-                #name = "rollout_length%02d_state%03d_frame_num%03d_step%02d.png"%(self.rollout_length,state_index,i, xx)
-                #f, ax = plt.subplots(1,3)
-                #ax[0].imshow(self.env.road_maps[i], origin='lower')
-                #ax[0].set_title('true frame %s' %i)
-                #ax[1].imshow(self.road_map_ests[i], origin='lower')
-                #ax[1].set_title('pred step %s' %xx)
-                #ax[2].imshow(fn, origin='lower')
-                #ax[2].set_title('false negs %s'%fnc)
-                #plt.savefig(name)
         except Exception, e:
             print(e)
             embed()
@@ -501,15 +510,11 @@ class PMCTS(object):
         logging.info("mcts starting search for action in state: {}".format(state_index))
         orig_state = deepcopy(state)
         self.env.set_state(state, state_index)
-        if self.estimator == 'none':
-            state_ests,state_indexes = [], []
-        else:
-            future_false_negs, state_indexes = self.estimate_the_future(state, state_index)
-
-        acts, probs, playout_frames = self.get_action_probs(state, state_index, temp=1e-3)
+        self.estimate_the_future(state, state_index)
+        acts, probs = self.get_action_probs(state, state_index, temp=1e-3)
         act = self.rdn.choice(acts, p=probs)
         logging.info("mcts chose action {} in state: {}".format(act,state_index))
-        return act, probs, playout_frames, self.playout_states, future_false_negs, state_indexes
+        return act, probs
 
     def update_tree_move(self, action):
         # keep previous info
@@ -527,118 +532,120 @@ class PMCTS(object):
         self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
         self.tree_subs_ = []
 
-def plot_playout_scatters(fname, true_env, base_path, model_type, seed, reward, sframes,
+def get_error_frame(true_road, model_road):
+    err = np.zeros_like(true_road)
+    true_car = true_road>0
+    pred_car = model_road>0
+    true_free = true_road<1
+    pred_free = model_road<1
+    # predict car where there was free space
+    false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
+    err[false_pos>1] = 15 # false pos
+    # predict free where there was car  # bad
+    false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
+    err[false_neg>1] = 250 # false neg
+    return err
+
+
+
+def plot_playout_scatters(true_env, base_path,  fname, 
+                         model_type, 
+                         seed, reward, playout_frames, 
                          model_road_maps, rollout_length,
-                         t,plot_error=False,gap=3,min_agents_alive=4, 
-                         do_plot_playouts=False):
+                         plot_error=True, gap=3, min_agents_alive=4, 
+                         do_plot_playouts=False, history_size=4):
+    plt.ioff()
     true_road_maps = true_env.road_maps
     if plot_error:
-        fpath = os.path.join(base_path,model_type,'E_%s'%fname)
+        fpath = os.path.join(base_path,model_type,'E_seed_%s_%s'%(seed,fname))
     else:
-        fpath = os.path.join(base_path,model_type,'P_%s'%fname)
+        fpath = os.path.join(base_path,model_type,'P_seed_%s_%s'%(seed,fname))
 
     if not os.path.exists(fpath):
         os.makedirs(fpath)
-    fast_path = os.path.join(base_path,model_type,'T_%s'%fname)
+    fast_path = os.path.join(base_path,model_type,'T_seed_%s_%s'%(seed,fname))
     if not os.path.exists(fast_path):
         os.makedirs(fast_path)
-    for ts in range(len(sframes)):
-        print("plotting true frame {}/{}".format(ts,t))
+    start_state_index = playout_frames[0]['state_index']
+    last_state_index = playout_frames[-1]['state_index']
+    total_steps = start_state_index+len(playout_frames)
+    for ts, step_frame in enumerate(playout_frames):
+        state_index = step_frame['state_index']
+        print("plotting true frame {}/{} state_index {}/{}".format(ts,total_steps,state_index, last_state_index))
         # true frame
-        state_index = sframes[ts][0]
-        ry,rx  = sframes[ts][1]
+        ry,rx = step_frame['robot_yx']
         ry = ry/float(true_env.ysize)
         rx = rx/float(true_env.xsize)
+
         true_state = true_env.road_maps[state_index]
         state = ((ry,rx), true_state)
-        actual_frame = true_env.get_state_plot(state)
+        true_frame = true_env.get_state_plot(state)
 
         model_state = model_road_maps[state_index]
         vstate = ((ry,rx), model_state)
         model_frame = true_env.get_state_plot(vstate)
-
-        err = np.zeros_like(true_road_maps[0])
-        true_car = true_road_maps[state_index]>0
-        pred_car = model_road_maps[state_index]>0
-        true_free = true_road_maps[state_index]<1
-        pred_free = model_road_maps[state_index]<1
-        # predict car where there was free space
-        false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
-        err[false_pos>1] = 15 # false pos
-
-        # predict free where there was car  # bad
-        false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
-        err[false_neg>1] = 250 # false neg
+        
+        model_error = get_error_frame(deepcopy(true_env.road_maps[state_index]), deepcopy(model_road_maps[state_index]))
 
 
-        fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, ts)
+        fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, state_index)
         ft,axt=plt.subplots(1,3, figsize=(9,3))
-        axt[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-        axt[0].set_title("true step:{}/{}".format(ts,t))
+        axt[0].imshow(true_frame, origin='lower', vmin=0, vmax=255 )
+        axt[0].set_title("true step:{}/{}".format(ts,total_steps))
         axt[1].imshow(model_frame, origin='lower', vmin=0, vmax=255 )
-        axt[1].set_title("{} model step:{}/{}".format(model_type, ts,t))
-        axt[2].imshow(err, origin='lower', cmap=plt.cm.gray )
+        axt[1].set_title("{} model step:{}/{}".format(model_type, ts, total_steps))
+        axt[2].imshow(model_error, origin='lower', cmap=plt.cm.gray )
         axt[2].set_title("model error".format(model_type))
         ft.tight_layout()
         plt.savefig(os.path.join(fast_path,fast_fname))
         plt.close()
 
-        # list of tuples with (real playout state, est playout state)
-
-        playouts = sframes[ts][2]
+        # playtouts is size episode_length, y, x
         c = 0
         if do_plot_playouts:
-            for pn, pframe in enumerate(playouts):
-                    if not c%gap:
-                        #if c > 10:
-                        #    if pframe.sum()<(min_agents_alive*true_env.robot.color-1):
-                        #        continue
+            playout_robot_states = step_frame['playout_robot_states']
+            playout_model_states = step_frame['playout_model_states']
+            num_playout_steps = playout_model_states.shape[0]
+            for playout_ind in range(1, num_playout_steps):
+                playout_state_index = state_index+playout_ind
+                print("plotting playout state_index {} - {} step {}/{}".format(state_index, playout_state_index, playout_ind, num_playout_steps))
 
-                        print("plotting step {}/{} playout step {}".format(ts,t,pn))
-                        true_playout_frame = true_road_maps[pn]+pframe
-                        est_playout_frame = model_road_maps[pn]+pframe
+                true_playout_frame = true_road_maps[playout_state_index]+playout_robot_states[playout_ind]
+                est_playout_frame = playout_model_states[playout_ind]+playout_robot_states[playout_ind]
+                rollout_model_error = get_error_frame(deepcopy(true_playout_frame), deepcopy(est_playout_frame))
 
-                        fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, ts, pn)
-                        if plot_error:
-                            f,ax=plt.subplots(1,4, figsize=(16,3.5))
-                        else:
-                            f,ax=plt.subplots(1,3, figsize=(12,3.5))
+                fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, state_index, playout_state_index)
+                f,ax=plt.subplots(1,4, figsize=(16,3.5))
+                ax[0].imshow(true_frame, origin='lower', vmin=0, vmax=255 )
+                ax[0].set_title("true state state_index:{}/{}".format(state_index,last_state_index))
+                ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
+                ax[1].set_title("true rollout {} step:{}/{}".format(playout_state_index, playout_ind, num_playout_steps ))
+                ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
+                ax[2].set_title("{} model {} step:{}/{}".format(model_type, playout_state_index, playout_ind,num_playout_steps ))
+                ax[3].imshow(rollout_model_error , origin='lower', cmap=plt.cm.gray)
+                ax[3].set_title("error in model")
+                f.tight_layout()
+                plt.savefig(os.path.join(fpath,fname))
+                plt.close()
 
-                        ax[0].imshow(actual_frame, origin='lower', vmin=0, vmax=255 )
-                        ax[0].set_title("true state step:{}/{}".format(ts,t))
-                        ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-                        ax[1].set_title("true rollout step:{}/{}".format(pn,rollout_length))
-                        ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-                        ax[2].set_title("{} model rollout step:{}/{}".format(model_type,pn,rollout_length))
-                        if plot_error:
-                            err = np.zeros_like(true_road_maps[0])
-                            true_car = true_road_maps[pn]>0
-                            pred_car = model_road_maps[pn]>0
-                            true_free = true_road_maps[pn]<1
-                            pred_free = model_road_maps[pn]<1
-                            # predict car where there was free space
-                            false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
-                            err[false_pos>1] = 15 # false pos
-
-                            # predict free where there was car  # bad
-                            false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
-                            err[false_neg>1] = 250 # false neg
-
-                            ax[3].imshow(err, origin='lower', cmap=plt.cm.gray)
-                            ax[3].set_title("error in model:{}/{}".format(pn,rollout_length))
-                        f.tight_layout()
-                        plt.savefig(os.path.join(fpath,fname))
-                        plt.close()
-                    c+=1
     print("making gif")
-    gif_path = os.path.join(fpath, 'seed_{}_reward_{}_gap_{}.gif'.format(seed, int(reward),gap))
+    gif_path = 'seed_{}.gif'.format(seed)
     search = os.path.join(fpath, 'seed_*.png')
-    cmd = 'convert -delay 1/100000 %s %s'%(search, gif_path)
+    cmd = 'convert -delay 1/100000 *.png %s \n'%( gif_path)
+    sh_path = os.path.join(fpath, 'run_seed_{}.sh'.format(seed))
+    sof = open(sh_path, 'w')
+    sof.write(cmd)
+    sof.close()
+
     #os.system(cmd)
 
-    fast_gif_path = os.path.join(fast_path, 'fast_seed_{}_reward_{}.gif'.format(seed, int(reward),gap))
-    fsearch = os.path.join(fast_path, '*.png')
-    cmd = 'convert -delay 1/30 %s %s'%(fsearch, fast_gif_path)
+    fast_gif_path = 'fast_seed'.format(seed)
+    cmd = 'convert -delay 1/30 *.png %s\n'%(fast_gif_path)
+    fast_sh_path = os.path.join(fast_path, 'run_fast_seed_{}.sh'.format(seed))
+    of = open(fast_sh_path, 'w')
+    of.write(cmd)
+    of.close()
+
     #os.system(cmd)
 
 
@@ -674,7 +681,7 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
         true_env.render(state)
     print("SEED", seed)
     frames = []
-    sframes = []
+    playout_frames = []
     value = 0
     while not finished:
         states.append(state)
@@ -686,16 +693,21 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
         #    embed()
         # search for best action
         st = time.time()
-        action, action_probs, playout_frames, playout_states, state_ests, state_est_indexes = pmcts.get_best_action(deepcopy(state), t)
-        frames.append((true_env.get_state_plot(state), playout_frames))
-        sframes.append((t, (ry,rx),  playout_states))
+        #action, action_probs, this_playout_frames, this_playout_states, state_ests, state_est_indexes = pmcts.get_best_action(deepcopy(state), t)
+        action, action_probs = pmcts.get_best_action(deepcopy(state), t)
+        #JRH
+        #frames.append((true_env.get_state_plot(state), this_playout_frames))
+        playout_frames.append({'state_index':t, 'robot_yx':(ry,rx), 
+                             'playout_robot_states':deepcopy(pmcts.playout_robots), 
+                             'playout_model_states':deepcopy(pmcts.playout_road_maps),
+                             })
         et = time.time()
 
         next_state, reward, finished, _ = true_env.step(state, t, action)
         print("CHOSE ACTION", action)
 
-        results['ests'].append(state_ests)
-        results['est_inds'].append(state_est_indexes)
+        #results['ests'].append(state_ests)
+        #results['est_inds'].append(state_est_indexes)
         print("decision took %s seconds"%round(et-st, 2))
         results['decision_sts'].append(st)
         results['decision_ts'].append(et-st)
@@ -729,10 +741,17 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     plt.close()
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.save_plots:
-        plot_playout_scatters(fname, true_env, 'trials', 
-                          str(estimator), seed, reward, sframes,
-                          pmcts.road_map_ests, pmcts.rollout_length,
-                          len(sframes),plot_error=args.do_plot_error,gap=args.plot_playout_gap,min_agents_alive=4, do_plot_playouts=args.plot_playouts)
+
+        plot_playout_scatters(true_env, 'trials', fname, 
+                          str(estimator), seed, reward, 
+                          playout_frames=playout_frames,
+                          model_road_maps=pmcts.road_map_ests, 
+                          rollout_length=pmcts.rollout_length,
+                          plot_error=args.do_plot_error,
+                          gap=args.plot_playout_gap,
+                          min_agents_alive=4, 
+                          do_plot_playouts=args.plot_playouts, 
+                          history_size=history_size)
     return results
 
 if __name__ == "__main__":

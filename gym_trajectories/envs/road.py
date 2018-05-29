@@ -217,7 +217,8 @@ class RoadEnv():
         self.experiment_name = "None"
 
         self.timestep = timestep
-        self.max_speed = .5
+        #self.max_speed = .5
+        self.max_speed = 1.0
         # average speed
         # make max steps twice the steps required to cross diagonally across the road
         self.max_steps = int(3*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
@@ -258,6 +259,8 @@ class RoadEnv():
         #print("step reward", state_index, self.max_steps, sr)
         return -(self.win_reward/2.0)*(state_index/float(self.max_steps))
 
+    def get_goal_from_roadmap(self, roadmap):
+        return np.where(roadmap == self.goal.color)
     def get_goal_from_state(self, state):
         goal_loc = np.where(state[1] == self.goal.color)
         return goal_loc
@@ -373,7 +376,8 @@ class RoadEnv():
         goal_x = float(self.rdn.randint(goal_xmin,goal_xmax))
         self.goal_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
         goal_angle = self.rdn.choice(range(1, 359, 45))
-        goal_speed = self.max_speed*self.goal_speed_multiplier
+        #goal_speed = self.max_speed*self.goal_speed_multiplier
+        goal_speed = 0.5*self.goal_speed_multiplier
         self.goal = Particle(world=self, name='goal',
                               local_map=self.goal_maps[0],
                               init_y=goal_y, init_x=goal_x,
