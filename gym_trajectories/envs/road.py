@@ -248,7 +248,12 @@ class RoadEnv():
 
     def get_lose_reward(self, state_index):
         # lose reward is negative make step reward positive
-        return self.lose_reward
+        #return self.lose_reward
+        return self.lose_reward + self.get_step_bonus(state_index)
+
+    def get_step_bonus(self, state_index):
+        #print("step reward", state_index, self.max_steps, sr)
+        return (self.lose_reward/2.0)*(state_index/float(self.max_steps))
 
     def get_win_reward(self, state_index):
         print('win reward', state_index, self.win_reward+ self.get_step_penalty(state_index))

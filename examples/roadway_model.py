@@ -111,6 +111,7 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     best_angles = np.ones(len(env.action_space), dtype=np.float)
     top = len(env.action_space)/2
     best_angles[:top] = 2.0
+    best_angles[:2] = 2.5
     #best_angles[1] = 2.5
     #best_angles[0] = 3.0
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
@@ -249,7 +250,7 @@ class PMCTS(object):
                 if not finished:
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
-                    gl = self.playout_goal_locs[self.get_relative_index(state_index+1)]
+                    gl = self.playout_goal_locs[-1]
                     actions_and_probs = self.node_probs_fn(state, state_index, self.env, gl)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
@@ -800,7 +801,7 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
     parser.add_argument('-gs', '--goal_speed', type=float , default=0.5)
-    parser.add_argument('-as', '--agent_max_speed', type=float , default=0.75)
+    parser.add_argument('-as', '--agent_max_speed', type=float , default=0.5)
     parser.add_argument('--save_pkl', action='store_false', default=True)
     parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--do_plot_error', action='store_false', default=True)
