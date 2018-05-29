@@ -249,15 +249,15 @@ class RoadEnv():
     def get_lose_reward(self, state_index):
         # lose reward is negative make step reward positive
         #return self.lose_reward
-        return self.lose_reward + self.get_step_bonus(state_index)
+        return self.lose_reward #+ self.get_step_bonus(state_index)
 
     def get_step_bonus(self, state_index):
         #print("step reward", state_index, self.max_steps, sr)
         return (self.lose_reward/2.0)*(state_index/float(self.max_steps))
 
     def get_win_reward(self, state_index):
-        print('win reward', state_index, self.win_reward+ self.get_step_penalty(state_index))
-        return self.win_reward + self.get_step_penalty(state_index)
+        print('win reward', state_index, self.win_reward )#+ self.get_step_penalty(state_index))
+        return self.win_reward #+ self.get_step_penalty(state_index)
 
     def get_step_penalty(self, state_index):
         #print("step reward", state_index, self.max_steps, sr)
@@ -265,6 +265,7 @@ class RoadEnv():
 
     def get_goal_from_roadmap(self, roadmap):
         return np.where(roadmap == self.goal.color)
+
     def get_goal_from_state(self, state):
         goal_loc = np.where(state[1] == self.goal.color)
         return goal_loc
@@ -490,6 +491,15 @@ class RoadEnv():
 #        self.max_steps = len(self.road_maps)
 #
 
+    def get_state_given_roadmap(self, road_map):
+        if road_map.max() != max_pixel:
+            print("given map with no goal")
+        rstate = (self.robot.y/float(self.ysize), self.robot.x/float(self.xsize))
+        state = (rstate, road_map)
+        return state
+
+
+
     def get_state(self, state_index):
         road_map = self.get_road_state(state_index)
         if road_map.max() != max_pixel:
@@ -523,6 +533,32 @@ class RoadEnv():
         self.robot.speed = speed
         self.robot.angle = angle
         return speed, angle
+
+    def model_step(self, state, state_index, action_index, next_road_map):
+        ''' step agent '''
+        finished, reward = self.set_state(state, state_index)
+        if finished:
+            return state, reward, finished, ''
+        else:
+            self.set_action_values_from_index(action_index)
+            # road_maps is max_steps long
+            # robot is alive will say if the robot ran into a wall
+            robot_is_alive = self.robot.step(self.timestep)
+            #print('##################################')
+            #print('## rstep alive:{} action: {} speed: {} angle {} ({},{}) step {}'.format(robot_is_alive,
+            #      action_index, self.robot.speed, self.robot.angle,
+            #      round(self.robot.y,2), round(self.robot.x,2), state_index))
+            #print('##################################')
+
+            #next_state = self.get_state(next_state_index)
+            #assert(next_state[1].max() == max_pixel)
+            # reward for time step
+            next_state_index = state_index + 1
+            next_state = self.get_state_given_roadmap(next_road_map)
+            finished, reward = self.check_state(next_state, robot_is_alive, next_state_index)
+            return next_state, reward, finished, ''
+
+
 
     def step(self, state, state_index, action_index):
         ''' step agent '''

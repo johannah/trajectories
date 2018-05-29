@@ -250,7 +250,8 @@ class PMCTS(object):
                 if not finished:
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
-                    gl = self.playout_goal_locs[-1]
+                    #gl = self.playout_goal_locs[len(self.playout_goal_locs)/2]
+                    gl = self.playout_goal_locs[len(self.playout_goal_locs)-2]
                     actions_and_probs = self.node_probs_fn(state, state_index, self.env, gl)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
@@ -271,17 +272,13 @@ class PMCTS(object):
                 logging.debug("GREEDY SELECT %s state_index" %state_index)
                 action, new_node = node.get_best(self.c_puct)
                 # cant actually use next state because we dont know it
-                ns, _, finished, _ = self.env.step(state, state_index, action)
-                next_vstate = [ns[0], self.road_map_ests[state_index]]
-                state_index +=1
-                finished, reward = self.env.check_state(next_vstate, self.env.robot.alive, state_index)
+                next_state_index = state_index + 1
+                vnext_road_map = self.road_map_ests[next_state_index]
+                next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map) 
                 cnt+=1
-                # time step
-                # gets true step back
-                # stack true state then vstate
-                #frames.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
                 node = new_node
                 state = next_vstate
+                state_index = next_state_index
                 self.add_robot_playout(state, state_index, reward)
 
 
@@ -315,19 +312,14 @@ class PMCTS(object):
 
 
                 #print("rollout state_index", state_index)
-                a, action_probs = self.get_rollout_action(state)
-
-                self.env.set_state(state, state_index)
-                ns, _, _, _ = self.env.step(state, state_index, a)
-
-                state_index+=1
-                # get robot location from previous step
-                next_vstate = [ns[0], self.road_map_ests[state_index]]
-                finished, reward = self.env.check_state(next_vstate, self.env.robot.alive, state_index)
-
-                #rframes.append((self.env.get_state_plot(next_state), self.env.get_state_plot(next_vstate)))
+                action, action_probs = self.get_rollout_action(state)
+                #self.env.set_state(state, state_index)
+                next_state_index = state_index + 1
+                vnext_road_map = self.road_map_ests[next_state_index]
+                next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map) 
+                state_index = next_state_index
                 state = next_vstate
-                #print("next_state sum", state_index, state[1].sum())
+                # get robot location from previous step
                 self.add_robot_playout(state, state_index, reward)
 
                 if state[1].sum() < 1:
@@ -876,7 +868,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'mall_results_prior_%s_model_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f.pkl' %(
+    fname = 'end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
                                     args.num_playouts,
