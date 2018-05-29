@@ -151,7 +151,7 @@ if __name__ == '__main__':
     default_base_datadir = '../../../trajectories_frames/dataset/'
     default_base_savedir = '../../../trajectories_frames/saved/vqvae'
 
-    default_dataset = 'moving_imgs_48x48'
+    default_dataset = 'fmoving_imgs_48x48'
     parser = argparse.ArgumentParser(description='train vq-vae for frogger images')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--datadir', default=default_base_datadir)
@@ -257,7 +257,8 @@ if __name__ == '__main__':
         if args.model_loadname is None:
             print("must give valid model!")
             sys.exit()
-        episode_length = 203
+        #episode_length = 203 # max_speed 1 and goal_speed 0.0
+        episode_length = 407 # with max_speed of 0.5 and goal_speed of 0.99*max_speed
         data_train_loader = DataLoader(FroggerDataset(train_data_dir,
                                        transform=transforms.ToTensor(), limit=args.num_train_limit),
                                        batch_size=episode_length, shuffle=False)

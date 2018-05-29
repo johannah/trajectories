@@ -125,8 +125,8 @@ if __name__ == '__main__':
     import argparse
     default_base_datadir = '../../../trajectories_frames/dataset/'
     default_base_savedir = '../../../trajectories_frames/saved/vqvae'
-    default_dataset = 'vqvae4layer_base_k512_z32_ds_e00051'
-    default_vqvae_loadname = 'vqvae4layer_base_k512_z32_dse00050.pkl'
+    default_dataset = 'vqvae4layer_base_k512_z32_ds_e00065'
+    default_vqvae_loadname = 'vqvae4layer_base_k512_z32_dse00064.pkl'
     parser = argparse.ArgumentParser(description='train pixel-cnn on vqvae latents')
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-st', '--stop_early', action='store_true', default=False)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
     epochs = []
     epoch = 1
 
-    basename = 'n%s_%s_k%s_z%s'%(pcnn_model.name, args.model_savename,
+    basename = 'm%s_%s_k%s_z%s'%(pcnn_model.name, args.model_savename,
                                         args.num_k, args.num_z)
     port = args.port
     train_loss_logger = VisdomPlotLogger(
@@ -200,8 +200,9 @@ Test Loss"""%basename})
             for e, tr, te in zip(epochs, train_loss_list, test_loss_list):
                 train_loss_logger.log(e, np.sum(tr))
                 test_loss_logger.log(e, np.sum(te))
-            epoch = epochs[-1]+1
+            epoch = epochs[-1]
             print('loaded checkpoint at epoch: {} from {}'.format(epoch, model_loadpath))
+            epoch = epochs[-1]+1
         else:
             print('could not find checkpoint at {}'.format(model_loadpath))
             embed()
@@ -224,16 +225,16 @@ Test Loss"""%basename})
         print('loaded vqvae model from epoch %s'%vqvae_last_epoch)
 
 
-    base_orig_name = os.path.join(args.datadir, 'test_'+'imgs_48x48')
+    base_orig_name = os.path.join(args.datadir, 'test_'+'fmoving_imgs_48x48')
     base_save_name = os.path.join(args.datadir, 'test_'+basename+'e%05d'%epoch)
 
     if not args.generate_results:
         data_test_loader = DataLoader(EpisodicVqVaeFroggerDataset(test_data_dir,
                                       transform=transforms.ToTensor()),
-                                      batch_size=32, shuffle=True, pin_memory=True, num_workers=4)
+                                      batch_size=64, shuffle=True, pin_memory=True, num_workers=4)
         data_train_loader = DataLoader(EpisodicVqVaeFroggerDataset(train_data_dir,
                                        transform=transforms.ToTensor(), limit=args.num_train_limit),
-                                       batch_size=32, shuffle=True, pin_memory=True, num_workers=4)
+                                       batch_size=64, shuffle=True, pin_memory=True, num_workers=4)
 
         for e in xrange(epoch,epoch+args.num_epochs):
             train_loss = train(e,data_train_loader,DEVICE,history_size=history_size)
