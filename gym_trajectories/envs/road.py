@@ -221,8 +221,8 @@ class RoadEnv():
         # average speed
         # make max steps twice the steps required to cross diagonally across the road
         self.max_steps = int(3*(np.sqrt(self.ysize**2 + self.xsize**2)/float(self.max_speed))/float(self.timestep))
-        self.lose_reward = -10
-        self.win_reward = np.abs(self.lose_reward)*2
+        self.lose_reward = -20
+        self.win_reward = np.abs(self.lose_reward)
         #      90
         #      |
         # 180 --- 0
@@ -283,8 +283,9 @@ class RoadEnv():
                 return True, self.get_lose_reward(state_index)
             #elif self.goal_maps[state_index][ry,rx]>0:
             elif (ry in goal_loc[0]) and (rx in goal_loc[1]):
-                print("MADE IT TO GOAL")
-                return True, self.get_win_reward(state_index)
+                wreward = self.get_win_reward(state_index)
+                #print("MADE IT TO GOAL", wreward, state_index)
+                return True,wreward 
             else:
                 return False, 0.0
 

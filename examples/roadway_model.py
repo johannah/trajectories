@@ -111,8 +111,8 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     best_angles = np.ones(len(env.action_space), dtype=np.float)
     top = len(env.action_space)/2
     best_angles[:top] = 2.0
-    best_angles[1] = 2.5
-    best_angles[0] = 3.0
+    #best_angles[1] = 2.5
+    #best_angles[0] = 3.0
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
@@ -173,6 +173,13 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
     return proad_states.astype(np.int)[:,0]
+
+def get_zero_model(state_index, est_inds, true_states, cond_states):
+    rollout_length = len(est_inds)
+    print("starting none %s predictions" %rollout_length)
+    # normalize data before putting into vqvae
+    return np.zeros_like(true_states[est_inds])
+
 
 
 def get_none_model(state_index, est_inds, true_states, cond_states):
@@ -242,7 +249,7 @@ class PMCTS(object):
                 if not finished:
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
-                    gl = self.playout_goal_locs[self.get_relative_index(state_index)]
+                    gl = self.playout_goal_locs[self.get_relative_index(state_index+1)]
                     actions_and_probs = self.node_probs_fn(state, state_index, self.env, gl)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
@@ -301,9 +308,9 @@ class PMCTS(object):
             # one less because we want next_state to be modeled
             if state_index < self.last_state_index_est-1:
 
-                if state[1].sum() < 1:
-                    print("before rollout state has no sum!", state_index)
-                    embed()
+                #if state[1].sum() < 1:
+                #    print("before rollout state has no sum!", state_index)
+                    #embed()
 
 
                 #print("rollout state_index", state_index)
@@ -324,7 +331,7 @@ class PMCTS(object):
 
                 if state[1].sum() < 1:
                     print("rollout next_state has no sum!", state_index)
-                    embed()
+                #    embed()
 
 
                 # true and vq state
@@ -583,10 +590,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
         model_state = model_road_maps[state_index]
         vstate = ((ry,rx), model_state)
         model_frame = true_env.get_state_plot(vstate)
-
         model_error = get_error_frame(deepcopy(true_env.road_maps[state_index]), deepcopy(model_road_maps[state_index]))
-
-
         fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, state_index)
         ft,axt=plt.subplots(1,3, figsize=(9,3))
         axt[0].imshow(true_frame, origin='lower', vmin=0, vmax=255 )
@@ -649,7 +653,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
 
 def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
         max_goal_distance=100, n_playouts=300,
-        max_rollout_length=50, estimator='none',
+        max_rollout_length=50, estimator='empty',
         prob_fn=goal_node_probs_fn, history_size=4,
         do_render=False):
 
@@ -871,11 +875,11 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'mall_results_prior_%s_model_%s_rollouts_%s_length_%s_prior_%s_level_%s_as_%01.02f_gs_%01.02f.pkl' %(
+    fname = 'mall_results_prior_%s_model_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
                                     args.num_playouts,
-                                    args.rollout_steps,args.prior_fn,
+                                    args.rollout_steps,
                                     args.level, args.agent_max_speed, args.goal_speed)
 
     if os.path.exists(fname):
