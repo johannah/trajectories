@@ -86,9 +86,6 @@ class PTreeNode(object):
         best = max(self.children_.iteritems(), key=lambda x: x[1].get_value(c_puct))
         return best
 
-
-
-
 def get_relative_bearing(gy, gx, ry, rx):
     dy = gy-ry
     dx = gx-rx
@@ -169,7 +166,7 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     z_q_x = z_q_x.view(all_pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
     x_d = vmodel.decoder(z_q_x)
 
-    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix)
+    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, mean=True)
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
@@ -180,8 +177,6 @@ def get_zero_model(state_index, est_inds, true_states, cond_states):
     print("starting none %s predictions" %rollout_length)
     # normalize data before putting into vqvae
     return np.zeros_like(true_states[est_inds])
-
-
 
 def get_none_model(state_index, est_inds, true_states, cond_states):
     rollout_length = len(est_inds)
@@ -218,7 +213,8 @@ class PMCTS(object):
             self.road_map_ests = self.env.road_maps
         else:
             self.road_map_ests[:self.history_size] = self.env.road_maps[:self.history_size]
-        # debuging none
+        #  what was estimated when we received a state
+        self.decision_time_road_map_ests = np.zeros_like(self.env.road_maps)
 
     def get_children(self, node):
         print('node name', node.name)
@@ -305,12 +301,6 @@ class PMCTS(object):
         while not finished:
             # one less because we want next_state to be modeled
             if state_index < self.last_state_index_est-1:
-
-                #if state[1].sum() < 1:
-                #    print("before rollout state has no sum!", state_index)
-                    #embed()
-
-
                 #print("rollout state_index", state_index)
                 action, action_probs = self.get_rollout_action(state)
                 #self.env.set_state(state, state_index)
@@ -444,6 +434,7 @@ class PMCTS(object):
         #######################
         # determine how different the predicted was from true for the last state
         # pred_road should be all zero if no cars have been predicted
+        self.decision_time_road_map_ests[state_index] = state[1]
         false_neg_count, false_neg = self.get_false_neg_counts(state_index)
         local_false_neg_count = self.get_local_false_neg_counts(state, state_index)
 
@@ -550,7 +541,7 @@ def get_error_frame(true_road, model_road):
 def plot_playout_scatters(true_env, base_path,  fname,
                          model_type,
                          seed, reward, playout_frames,
-                         model_road_maps, rollout_length,
+                         model_road_maps, decision_time_road_map_ests,  rollout_length,
                          plot_error=True, gap=3, min_agents_alive=4,
                          do_plot_playouts=False, history_size=4):
     plt.ioff()
@@ -580,7 +571,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
         state = ((ry,rx), true_state)
         true_frame = true_env.get_state_plot(state)
 
-        model_state = model_road_maps[state_index]
+        model_state = decision_time_road_map_ests[state_index]
         vstate = ((ry,rx), model_state)
         model_frame = true_env.get_state_plot(vstate)
         model_error = get_error_frame(deepcopy(true_env.road_maps[state_index]), deepcopy(model_road_maps[state_index]))
@@ -602,7 +593,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
             playout_robot_states = step_frame['playout_robot_states']
             playout_model_states = step_frame['playout_model_states']
             num_playout_steps = playout_model_states.shape[0]
-            for playout_ind in range(num_playout_steps):
+            for playout_ind in range(0,num_playout_steps):
                 playout_state_index = min(state_index+playout_ind, true_road_maps.shape[0]-1)
                 print("plotting playout state_index {} - {} step {}/{}".format(state_index, playout_state_index, playout_ind, num_playout_steps))
 
@@ -680,7 +671,6 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     value = 0
     while not finished:
         states.append(state)
-        ry,rx = true_env.get_robot_state(state)
         #try:
         #    assert(state[1].max() == max_pixel)
         #except:
@@ -692,13 +682,18 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
         action, action_probs = pmcts.get_best_action(deepcopy(state), t)
         #JRH
         #frames.append((true_env.get_state_plot(state), this_playout_frames))
-        playout_frames.append({'state_index':t, 'robot_yx':(ry,rx),
-                             'playout_robot_states':deepcopy(pmcts.playout_robots),
-                             'playout_model_states':deepcopy(pmcts.playout_road_maps),
-                             })
         et = time.time()
 
+        ry,rx = true_env.get_robot_state(state)
         next_state, reward, finished, _ = true_env.step(state, t, action)
+
+        playout_frames.append({'state_index':t, 'robot_yx':(ry,rx),
+                               'playout_robot_states':deepcopy(pmcts.playout_robots),
+                               'playout_model_states':deepcopy(pmcts.playout_road_maps),
+                               })
+
+
+
         print("CHOSE ACTION", action)
 
         #results['ests'].append(state_ests)
@@ -741,6 +736,7 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
                           str(estimator), seed, reward,
                           playout_frames=playout_frames,
                           model_road_maps=pmcts.road_map_ests,
+                          decision_time_road_map_ests = pmcts.decision_time_road_map_ests,
                           rollout_length=pmcts.rollout_length,
                           plot_error=args.do_plot_error,
                           gap=args.plot_playout_gap,
@@ -776,7 +772,9 @@ if __name__ == "__main__":
     #pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00026.pkl'
     vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
-    pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
+    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
+    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
+    pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
@@ -806,12 +804,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.goal_speed == 0.5:
         print("MOVING")
-        default_pcnn_model_loadpath = os.path.join(default_base_savedir, pcnn_moving_name)
-        default_vqvae_model_loadpath = os.path.join(default_base_savedir, vq_moving_name)
+        pcnn_name = pcnn_moving_name
+        vq_name = vq_moving_name
     else:
         print("STATIC")
-        default_pcnn_model_loadpath = os.path.join(default_base_savedir, pcnn_static_name)
-        default_vqvae_model_loadpath = os.path.join(default_base_savedir, vq_static_name)
+        pcnn_name = pcnn_static_name
+        vq_name = vq_static_name
+    default_pcnn_model_loadpath = os.path.join(default_base_savedir, pcnn_name)
+    default_vqvae_model_loadpath = os.path.join(default_base_savedir, vq_name)
 
     #equal_node_probs_fn(
     if args.prior_fn == 'goal':
@@ -864,8 +864,8 @@ if __name__ == "__main__":
             sys.exit()
 
     else:
-        default_vqvae_model_loadpath = 'na.pkl'
-        default_pcnn_model_loadpath = 'na.pkl'
+       pcnn_name  = 'na.pkl'
+       vq_name = 'na.pkl'
 
     goal_dis = args.max_goal_distance
     if args.debug:
@@ -876,8 +876,8 @@ if __name__ == "__main__":
     fname = 'end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
-                                    default_vqvae_model_loadpath.replace('.pkl', ''),
-                                    default_pcnn_model_loadpath.replace('.pkl', ''),
+                                    vq_name.replace('.pkl', ''),
+                                    pcnn_name.replace('.pkl', ''),
                                     args.num_playouts,
                                     args.rollout_steps,
                                     args.level, args.agent_max_speed, args.goal_speed,
