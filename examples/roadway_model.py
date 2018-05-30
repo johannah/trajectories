@@ -166,7 +166,7 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     z_q_x = z_q_x.view(all_pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
     x_d = vmodel.decoder(z_q_x)
 
-    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, mean=True)
+    x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
