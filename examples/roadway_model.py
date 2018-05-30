@@ -728,8 +728,6 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
             pmcts.update_tree_move(action)
             state = next_state
             t+=1
-            if t > 10:
-                finished = True
         else:
             results['reward'] = reward
             states.append(next_state)
