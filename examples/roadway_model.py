@@ -772,7 +772,7 @@ if __name__ == "__main__":
     default_base_savedir = '../../models'
     savedir = '../../results'
     if not os.path.exists(savedir):
-        os.makedir(savedir)
+        os.makedirs(savedir)
 
     # false negs over 10 steps  for seed 35 [17, 21, 26, 25, 32, 40, 38, 38, 39, 41]
     #vq_name = 'vqvae4layer_base_k512_z32_dse00025.pkl'
@@ -907,7 +907,7 @@ if __name__ == "__main__":
                                     args.level, args.agent_max_speed, args.goal_speed,
                                     args.max_goal_distance)
 
-    fpath = os.path.join(save_dir, fname)
+    fpath = os.path.join(savedir, fname)
     if os.path.exists(fpath):
         print('loading previous results from %s' %fpath)
         try:
