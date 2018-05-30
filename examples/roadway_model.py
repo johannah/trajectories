@@ -4,9 +4,8 @@
 # https://github.com/junxiaosong/AlphaZero_Gomoku
 
 import matplotlib
-#matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from imageio import imwrite
 import math
 from gym_trajectories.envs.road import RoadEnv, max_pixel, min_pixel
 import time
@@ -800,7 +799,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
-    parser.add_argument('-e', '--num_episodes', type=int, default=500, help='num traces to run')
+    parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num traces to run')
     parser.add_argument('-y', '--ysize', type=int, default=48, help='pixel size of game in y direction')
     parser.add_argument('-x', '--xsize', type=int, default=48, help='pixel size of game in x direction')
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
@@ -812,7 +811,6 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--cuda', action='store_true', default=False)
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
-
     parser.add_argument('-sams', '--num_samples', type=int , default=5)
     parser.add_argument('-gs', '--goal_speed', type=float , default=0.5)
     parser.add_argument('-as', '--agent_max_speed', type=float , default=1.0)

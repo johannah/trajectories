@@ -79,13 +79,13 @@ def get_avg_time(pdict):
     return {key:r}
 
 
-files = sorted(glob('*mall*pkl'))
+files = sorted(glob('../../results/*mall*pkl'))
 loaded = [(f,pickle.load(open(f,'r'))) for f in files ]
 for (f,l) in loaded:
     print(f)
     get_steps_won(l)
     print(get_avg_time(l))
-    print('35 length', len(l[35]['actions']))
+    #print('35 length', len(l[35]['actions']))
     #print(get_avg_reward(l))
     #print(get_num_games_won(l))
     #print(f,get_reward_won_games(l))
