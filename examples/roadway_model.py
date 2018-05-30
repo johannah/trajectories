@@ -769,7 +769,7 @@ if __name__ == "__main__":
     # this seems to work well
     #python roadway_pmcts.py --seed 45 -r 100  -p 100 -l 6
 
-    default_base_savedir = '../../trajectories_frames/saved/vqvae'
+    default_base_savedir = 'models'
 
     # false negs over 10 steps  for seed 35 [17, 21, 26, 25, 32, 40, 38, 38, 39, 41]
     #vq_name = 'vqvae4layer_base_k512_z32_dse00025.pkl'
