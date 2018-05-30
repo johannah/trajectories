@@ -37,9 +37,9 @@ def get_steps_won(pdict):
 
     #return {'mean steps':np.mean(steps), 'median steps':np.median(steps),
     #        'max steps':np.max(steps), 'min_steps':np.min(steps),
-    #        'var_steps':np.std(steps), 'num_tout':len(seeds_tout), 
-    #        'mean times':mean_times,  'var times':np.std(tms), 
-    #        'num_won':len(seeds_won), 
+    #        'var_steps':np.std(steps), 'num_tout':len(seeds_tout),
+    #        'mean times':mean_times,  'var times':np.std(tms),
+    #        'num_won':len(seeds_won),
     #        'num_died':len(seeds_died),
     #        'num_timeout':len(seeds_won)-len(seeds_lost),
     #         #'seed steps sorted':steps_sorted,

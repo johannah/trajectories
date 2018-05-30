@@ -717,8 +717,6 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
 
         print("CHOSE ACTION", action)
 
-        #results['ests'].append(state_ests)
-        #results['est_inds'].append(state_est_indexes)
         print("decision took %s seconds"%round(et-st, 2))
         results['decision_sts'].append(st)
         results['decision_ts'].append(et-st)
@@ -814,7 +812,7 @@ if __name__ == "__main__":
 
     parser.add_argument('-sams', '--num_samples', type=int , default=5)
     parser.add_argument('-gs', '--goal_speed', type=float , default=0.5)
-    parser.add_argument('-as', '--agent_max_speed', type=float , default=0.75)
+    parser.add_argument('-as', '--agent_max_speed', type=float , default=1.0)
     parser.add_argument('--save_pkl', action='store_false', default=True)
     parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--do_plot_error', action='store_false', default=True)
@@ -923,13 +921,17 @@ if __name__ == "__main__":
 
     for i in range(args.num_episodes):
         if ((seed in all_results.keys()) and args.save_pkl):
-            rew = all_results[seed]['reward']
-            print("seed %s already in results, score was %s" %(seed,rew))
-            if rew>=0:
-                seed +=1
-                continue
-            else:
-                print('rerunning since this one was lost')
+            try:
+                rew = all_results[seed]['reward']
+                print("seed %s already in results, score was %s" %(seed,rew))
+                if rew>=0:
+                    seed +=1
+                    continue
+                else:
+                    print('rerunning since this one was lost')
+
+            except:
+                print("no reward - rerun")
         print("STARTING EPISODE %s seed %s" %(i,seed))
         print(args.save_pkl)
         st = time.time()
