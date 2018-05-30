@@ -166,8 +166,27 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     z_q_x = z_q_x.view(all_pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
     x_d = vmodel.decoder(z_q_x)
 
+    #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
+    goal_loc = np.where(proad_states==max_pixel)
+
+    #print(proad_states[0], proad_states.sum())
+    for cc in range(3):
+        x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=False)
+        sroad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
+        # remove goal
+        if len(goal_loc[0]):
+            print("removing goal")
+            print(sroad_states.max())
+            sroad_states[sroad_states>max_pixel-2] = 0
+            print(sroad_states.max())
+        else:
+            goal_loc = np.where(sroad_states==max_pixel)
+
+        proad_states = np.maximum(proad_states, sroad_states)
+
+    #print(proad_states[0], proad_states.sum())
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
     return proad_states.astype(np.int)[:,0]
@@ -873,7 +892,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
+    fname = 'sample_end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
                                     args.prior_fn,
                                     args.model_type,
                                     vq_name.replace('.pkl', ''),
