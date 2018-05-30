@@ -216,7 +216,9 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
 
         proad_states = np.maximum(proad_states, sroad_states)
 
-    #print(goal_ests)
+
+    for ii, g in enumerate(goal_ests):
+        print(ii,g)
     #print(proad_states[0], proad_states.sum())
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
