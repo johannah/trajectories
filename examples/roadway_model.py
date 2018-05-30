@@ -172,7 +172,7 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     goal_loc = np.where(proad_states==max_pixel)
 
     #print(proad_states[0], proad_states.sum())
-    for cc in range(3):
+    for cc in range(args.num_samples):
         x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=False)
         sroad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
         # remove goal
@@ -210,7 +210,7 @@ class PMCTS(object):
             history_size=4):
         # use estimator for planning, if false, use env
         # make sure it does a full rollout the first time
-        self.full_rollouts_every = rollout_length*2
+        self.full_rollouts_every = 1
         self.last_full_rollout = self.full_rollouts_every*10
         self.env = env
         self.rdn = random_state
@@ -461,8 +461,10 @@ class PMCTS(object):
         # false_neg_count is ~ 25 when the pcnn predicts all zeros
         print('local false neg is', local_false_neg_count, 'last full rollout', self.last_full_rollout)
 
-        if (local_false_neg_count > 0) or (false_neg_count > 15) or (self.last_full_rollout > self.full_rollouts_every):
-            self.last_full_rollout = 0
+        #if (local_false_neg_count > 0) or (false_neg_count > 15) or (self.last_full_rollout > self.full_rollouts_every):
+        # always replan
+        if True:
+            self.last_full_rollout = 1
             print("running all rollouts")
             # ending index is noninclusive
             # starting index is inclusive
@@ -726,6 +728,8 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
             pmcts.update_tree_move(action)
             state = next_state
             t+=1
+            if t > 10:
+                finished = True
         else:
             results['reward'] = reward
             states.append(next_state)
@@ -792,8 +796,8 @@ if __name__ == "__main__":
     vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
-    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
-    pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
+    pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
+    #pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
@@ -810,8 +814,9 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
     parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
 
+    parser.add_argument('-sams', '--num_samples', type=int , default=5)
     parser.add_argument('-gs', '--goal_speed', type=float , default=0.5)
-    parser.add_argument('-as', '--agent_max_speed', type=float , default=0.5)
+    parser.add_argument('-as', '--agent_max_speed', type=float , default=0.75)
     parser.add_argument('--save_pkl', action='store_false', default=True)
     parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--do_plot_error', action='store_false', default=True)
@@ -892,7 +897,8 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'sample_end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
+    fname = 'sample_%s_end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
+                                    args.num_samples,
                                     args.prior_fn,
                                     args.model_type,
                                     vq_name.replace('.pkl', ''),
