@@ -94,6 +94,7 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     # TODO make env take in state to give goal/robot
     if not len(goal_loc[0]):
         print('couldnt find goal in given state estimate')
+        embed()
         return equal_node_probs_fn(state, state_index, env, goal_loc)
 
     gy, gx = goal_loc[0][0], goal_loc[1][0]
@@ -125,6 +126,8 @@ def equal_node_probs_fn(state, state_index, env, gm):
     probs = np.ones(len(env.action_space))/float(len(env.action_space))
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
+
+#def get_min_goal_pixel(frame):
 
 def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     rollout_length = len(est_inds)
@@ -168,56 +171,73 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
-    goal_ests = []
+    goal_y_ests = {}
+    goal_x_ests = {}
     for frame in range(proad_states.shape[0]):
+        goal_y_ests[frame] = []
+        goal_x_ests[frame] = []
         cgoal_est = np.where(proad_states[frame,0] == max_pixel)
         print(frame, "estimate goal from mean", cgoal_est)
         cest_len = len(cgoal_est[0])
-        if 1 < cest_len <= 4:
-            print("good")
-            goal_ests.append(cgoal_est)
-        else:
-            print("bad")
-            goal_ests.append(([], []))
+        # set to zero
+        if cest_len:
+            proad_states[frame,0, cgoal_est[0], cgoal_est[1]] = 0.0
+        if cest_len == 4:
+            ye = cgoal_est[0]
+            xe = cgoal_est[1]
+            if ye.max()-ye.min() == 1:
+                goal_y_ests[frame].append(ye.min())
+            if xe.max()-xe.min() == 1:
+                goal_x_ests[frame].append(xe.min())
 
-    #print(proad_states[0], proad_states.sum())
     for cc in range(args.num_samples):
         x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=False)
         sroad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
+
+        print("STARTING", cc)
         # for each predicted state
         for frame in range(proad_states.shape[0]):
             sgoal_est = np.where(sroad_states[frame,0] == max_pixel)
+            print('sampling', frame, sgoal_est)
             # if goal previously predicted is the right size - use it
-            cest_len = len(goal_ests[frame][0])
             sest_len = len(sgoal_est[0])
-
-            #print(frame, cest_len, 'previous', goal_ests[frame])
-            #print(frame, sest_len, 'sampled', sgoal_est)
-            if (cest_len == 4):
-                bsum = sroad_states[frame,0].sum()
+            # zero out est goal
+            if sest_len:
                 sroad_states[frame,0,sgoal_est[0], sgoal_est[1]] = 0.0
-                asum = sroad_states[frame,0].sum()
-                # remove the goal from this sampled estimate
-                #print("removing goal from sample %s frame %s diff %s" %(cc, frame, asum-bsum))
-            else:
-                # if the sampled estimate is better ,  use it
-                if (cest_len < sest_len <= 4):
-                    # this is the current best estimate of the goal
-                    #print("!!! using goal from sample %s frame %s !!!" %(cc, frame))
-                    goal_ests[frame] = sgoal_est
-                else:
-                    # remove goal
-                    bsum = sroad_states[frame,0].sum()
-                    sroad_states[frame,0,sgoal_est[0], sgoal_est[1]] = 0.0
-                    asum = sroad_states[frame,0].sum()
-                    # remove the goal from this sampled estimate
-                    #print("removing goal from sample %s frame %s diff %s" %(cc, frame, asum-bsum))
-
-
+            if sest_len == 4:
+                ye = sgoal_est[0]
+                xe = sgoal_est[1]
+                print(ye,xe)
+                if ye.max()-ye.min() == 1:
+                    goal_y_ests[frame].append(ye.min())
+                if xe.max()-xe.min() == 1:
+                    goal_x_ests[frame].append(xe.min())
         proad_states = np.maximum(proad_states, sroad_states)
 
-    #print(goal_ests)
-    #print(proad_states[0], proad_states.sum())
+    maxy = proad_states.shape[2]-1
+    maxx = proad_states.shape[3]-1
+    for frame in range(proad_states.shape[0]):
+
+        ly = sorted(goal_y_ests[frame])
+        lx = sorted(goal_x_ests[frame])
+        lly  = len(goal_y_ests[frame])
+        llx  = len(goal_x_ests[frame])
+        print('frame', frame)
+        print(ly)
+        print(lx)
+
+        if lly and llx:
+            my = np.int(np.median(ly))
+            mx = np.int(np.median(lx))
+            myp = min(my+1, maxy)
+            mxp = min(mx+1, maxx)
+            print('my', my, myp)
+            print('mx', mx, mxp)
+            proad_states[frame,0, my, mx]  = max_pixel
+            proad_states[frame,0, myp, mx]  = max_pixel
+            proad_states[frame,0, my, mxp]  = max_pixel
+            proad_states[frame,0, myp, mxp]  = max_pixel
+
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
     return proad_states.astype(np.int)[:,0]
@@ -297,7 +317,8 @@ class PMCTS(object):
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
                     #gl = self.playout_goal_locs[len(self.playout_goal_locs)/2]
-                    gl = self.playout_goal_locs[len(self.playout_goal_locs)-2]
+                    gl = self.playout_goal_locs[len(self.playout_goal_locs)//2]
+                    print("!!!!!!!!!!!!!!!!!!!!!!!GOAL", gl)
                     actions_and_probs = self.node_probs_fn(state, state_index, self.env, gl)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
@@ -399,7 +420,7 @@ class PMCTS(object):
         relative_state = self.get_relative_index(state_index)
         #print('robot playout', self.start_state_index, state_index, relative_state)
         try:
-            self.playout_robots[relative_state,ry,rx] = self.env.robot.color+bonus
+            self.playout_robots[relative_state,ry,rx] = self.env.robot.color
         except Exception, e:
             print(e, 'rob')
             embed()
@@ -451,8 +472,22 @@ class PMCTS(object):
     def get_false_neg_counts(self, state_index):
         true_road_map = self.env.road_maps[state_index]
         pred_road_map = self.road_map_ests[state_index]
+        road_true_road_map = deepcopy(true_road_map)
+        road_pred_road_map = deepcopy(pred_road_map)
+        true_goal = np.where(true_road_map==max_pixel)
+        pred_goal = np.where(pred_road_map==max_pixel)
+        print(true_goal, pred_goal)
+        road_true_road_map[true_goal] = 0
+        road_pred_road_map[pred_goal] = 0
+
+        # measure error of 0th pixel of goal
+        goal_err = 0.0
+        if len(pred_goal[0]):
+            if len(true_goal[0]):
+                goal_err = np.abs(pred_goal[0][0]-true_goal[0][0])
+        # need to measure false positive of goal
         # predict free where there was car  # bad
-        false_neg = (true_road_map*np.abs(true_road_map-pred_road_map))
+        false_neg = (road_true_road_map*np.abs(road_true_road_map-road_pred_road_map))
         false_neg[false_neg>0] = 1
         false_neg_count = false_neg.sum()
         return false_neg_count, false_neg
@@ -536,8 +571,16 @@ class PMCTS(object):
                 #print('this_rollout', est_inds) #should be rollout_length +1 for the current_state
                 self.playout_road_maps = self.road_map_ests[est_inds]
                 self.playout_goal_locs = []
+                # start assuming it is zero
+                gl = [[self.env.ysize//2], [self.env.xsize//2]]
                 for i, rm in enumerate(self.playout_road_maps):
-                    self.playout_goal_locs.append(self.env.get_goal_from_roadmap(rm))
+                    found_goal, fgl = self.env.get_goal_from_roadmap(rm)
+                    if not found_goal:
+                        print("didnt find goal", i, fgl)
+                    else:
+                        print("found goal", i, gl)
+                        gl = fgl
+                    self.playout_goal_locs.append(gl)
             false_negs = []
             for xx, i in enumerate(rinds):
                 fnc,fn = self.get_false_neg_counts(i)
@@ -782,7 +825,7 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
     #plot_true_scatters('trials',  seed=seed, reward=reward, sframes=sframes, t=t)
     if args.save_plots:
 
-        plot_playout_scatters(true_env, 'trials', fname.replace('.pkl',''),
+        plot_playout_scatters(true_env, os.path.join(savedir, 'trials'), fname.replace('.pkl',''),
                           str(estimator), seed, reward,
                           playout_frames=playout_frames,
                           model_road_maps=pmcts.road_map_ests,
@@ -926,7 +969,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'sample_%s_end_m2_goal_no_reward_scale_mall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
+    fname = 'sample_%s_gall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
                                     args.num_samples,
                                     args.prior_fn,
                                     args.model_type,

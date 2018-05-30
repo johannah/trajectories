@@ -32,7 +32,7 @@ class Particle():
                  bounce=True, bounce_angle=45, entire_body_outside=True,
                  color=12, ymarkersize=3, xmarkersize=3):
 
-        # if object is bouncy - markersize offsets must be possitive! 
+        # if object is bouncy - markersize offsets must be possitive!
         if bounce:
             assert(ymarkersize>0)
             assert(xmarkersize>0)
@@ -229,12 +229,12 @@ class RoadEnv():
         #      |
         #     270
 
-        #      
+        #
         #      |
-        #   0 --- 
+        #   0 ---
         #      |
-        #     
- 
+        #
+
         #self.angles = np.linspace(0, 180, 5)[::-1]
         #self.speeds = np.linspace(.1,self.max_speed,3)
         self.angles = np.linspace(-180, 180, num_angles, endpoint=False)
@@ -264,7 +264,10 @@ class RoadEnv():
         return -(self.win_reward/2.0)*(state_index/float(self.max_steps))
 
     def get_goal_from_roadmap(self, roadmap):
-        return np.where(roadmap == self.goal.color)
+        if roadmap.max() == self.goal.color:
+            return True, np.where(roadmap == self.goal.color)
+        else:
+            return False, ''
 
     def get_goal_from_state(self, state):
         goal_loc = np.where(state[1] == self.goal.color)
@@ -291,7 +294,7 @@ class RoadEnv():
             elif (ry in goal_loc[0]) and (rx in goal_loc[1]):
                 wreward = self.get_win_reward(state_index)
                 #print("MADE IT TO GOAL", wreward, state_index)
-                return True,wreward 
+                return True,wreward
             else:
                 return False, 0.0
 
@@ -385,7 +388,7 @@ class RoadEnv():
         self.goal = Particle(world=self, name='goal',
                               local_map=self.goal_maps[0],
                               init_y=goal_y, init_x=goal_x,
-                              angle=goal_angle, speed=self.goal_speed, 
+                              angle=goal_angle, speed=self.goal_speed,
                               clear_map=True,
                               bounce=True, entire_body_outside=False,
                               ymarkersize=2,xmarkersize=2,
@@ -396,7 +399,7 @@ class RoadEnv():
         if goal_speed != 0.5:
             print("WARNING GOAL SPEED ISNT 0.5")
             embed()
-        self.goal_speed = goal_speed 
+        self.goal_speed = goal_speed
         self.experiment_name = experiment_name
         max_xcarsize = int(self.xsize*.15)
         self.road_maps = np.zeros((self.max_steps, self.ysize, self.xsize), np.uint8)
@@ -492,8 +495,8 @@ class RoadEnv():
 #
 
     def get_state_given_roadmap(self, road_map):
-        if road_map.max() != max_pixel:
-            print("given map with no goal")
+        #if road_map.max() != max_pixel:
+        #    print("given map with no goal")
         rstate = (self.robot.y/float(self.ysize), self.robot.x/float(self.xsize))
         state = (rstate, road_map)
         return state
