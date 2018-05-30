@@ -168,23 +168,55 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
-    goal_loc = np.where(proad_states==max_pixel)
+    goal_ests = []
+    for frame in range(proad_states.shape[0]):
+        cgoal_est = np.where(proad_states[frame,0] == max_pixel)
+        print(frame, "estimate goal from mean", cgoal_est)
+        cest_len = len(cgoal_est[0])
+        if 1 < cest_len <= 4:
+            print("good")
+            goal_ests.append(cgoal_est)
+        else:
+            print("bad")
+            goal_ests.append(([], []))
 
     #print(proad_states[0], proad_states.sum())
     for cc in range(args.num_samples):
         x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=False)
         sroad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
-        # remove goal
-        if len(goal_loc[0]):
-            print("removing goal")
-            print(sroad_states.max())
-            sroad_states[sroad_states>max_pixel-2] = 0
-            print(sroad_states.max())
-        else:
-            goal_loc = np.where(sroad_states==max_pixel)
+        # for each predicted state
+        for frame in range(proad_states.shape[0]):
+            sgoal_est = np.where(sroad_states[frame,0] == max_pixel)
+            # if goal previously predicted is the right size - use it
+            cest_len = len(goal_ests[frame][0])
+            sest_len = len(sgoal_est[0])
+
+            #print(frame, cest_len, 'previous', goal_ests[frame])
+            #print(frame, sest_len, 'sampled', sgoal_est)
+            if (cest_len == 4):
+                bsum = sroad_states[frame,0].sum()
+                sroad_states[frame,0,sgoal_est[0], sgoal_est[1]] = 0.0
+                asum = sroad_states[frame,0].sum()
+                # remove the goal from this sampled estimate
+                #print("removing goal from sample %s frame %s diff %s" %(cc, frame, asum-bsum))
+            else:
+                # if the sampled estimate is better ,  use it
+                if (cest_len < sest_len <= 4):
+                    # this is the current best estimate of the goal
+                    #print("!!! using goal from sample %s frame %s !!!" %(cc, frame))
+                    goal_ests[frame] = sgoal_est
+                else:
+                    # remove goal
+                    bsum = sroad_states[frame,0].sum()
+                    sroad_states[frame,0,sgoal_est[0], sgoal_est[1]] = 0.0
+                    asum = sroad_states[frame,0].sum()
+                    # remove the goal from this sampled estimate
+                    #print("removing goal from sample %s frame %s diff %s" %(cc, frame, asum-bsum))
+
 
         proad_states = np.maximum(proad_states, sroad_states)
 
+    #print(goal_ests)
     #print(proad_states[0], proad_states.sum())
     iet = time.time()
     print("image pred time", round(iet-ist, 2))
