@@ -19,9 +19,11 @@ def get_steps_won(pdict):
     z = zip(seeds_won, steps)
     steps_sorted = sorted(z, key=lambda x: x[1])
     tms = [pdict[seed]['full_end_time'] - pdict[seed]['full_start_time'] for seed in seeds_won]
-    steps_won = [len(pdict[seed]['actions']) for seed in seeds_won]
-    if not len(steps_won):
-        steps_won = [10000.0]
+
+    seeds_alive = np.array([p for p in seeds if pdict[p]['reward'] >= 0])
+    steps_alive = [len(pdict[seed]['actions']) for seed in seeds_alive]
+    if not len(steps_alive):
+        steps_alive = [10000.0]
 
     mean_times = np.mean(tms)
     print("PERCENT LOST  {} - {}/{}".format(round(len(seeds_lost)/float(len(seeds)),2),
@@ -32,7 +34,8 @@ def get_steps_won(pdict):
 
     print("PERCENT TIED  {} - {}/{}".format(round(len(seeds_tout)/float(len(seeds)),2),
                                                  len(seeds_tout),len(seeds)))
-    print("MEAN STEPS WON {}".format(round(np.mean(steps_won),2)))
+    print("MEAN STEPS ALIVE {}".format(round(np.mean(steps_alive),3)))
+    print("STD STEPS ALIVE {}".format(round(np.std(steps_alive),3)))
 
 
     #return {'mean steps':np.mean(steps), 'median steps':np.median(steps),
@@ -82,7 +85,13 @@ def get_avg_time(pdict):
 files = sorted(glob('../../results/*gall*pkl'))
 loaded = [(f,pickle.load(open(f,'r'))) for f in files ]
 for (f,l) in loaded:
-    print(f)
+    fb = os.path.split(f)[1]
+    print(fb)
+    num_samples = fb.split('sample_')[1].split('_gall')[0]
+    model = fb.split('model_')[1][:10]
+    length = fb.split('length_')[1].split('_level')[0]
+    agent_speed = fb.split('as_')[1].split('_gs')[0]
+    print('agent_speed %s - model %s - length %s - num_samples %s'%(agent_speed,model,length,num_samples))
     get_steps_won(l)
     print(get_avg_time(l))
     #print('35 length', len(l[35]['actions']))
