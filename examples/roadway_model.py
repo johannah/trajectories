@@ -311,14 +311,13 @@ class PMCTS(object):
         finished,reward = self.env.set_state(state, state_index)
 
 
-        while state_index < self.last_state_index_est-1:
+        while True:
             if node.is_leaf():
-                if not finished:
+                if (not finished) and (state_index+1 < self.last_state_index_est):
                     # add all unexpanded action nodes and initialize them
                     # assign equal action to each action
                     #gl = self.playout_goal_locs[len(self.playout_goal_locs)/2]
                     gl = self.playout_goal_locs[len(self.playout_goal_locs)//2]
-                    print("!!!!!!!!!!!!!!!!!!!!!!!GOAL", gl)
                     actions_and_probs = self.node_probs_fn(state, state_index, self.env, gl)
                     node.expand(actions_and_probs)
                     # if you have a neural network - use it here to bootstrap the value
@@ -336,12 +335,12 @@ class PMCTS(object):
             else:
                 # greedy select
                 # trys actions based on c_puct
-                logging.debug("GREEDY SELECT %s state_index" %state_index)
                 action, new_node = node.get_best(self.c_puct)
                 # cant actually use next state because we dont know it
                 next_state_index = state_index + 1
                 vnext_road_map = self.road_map_ests[next_state_index]
                 next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map)
+                logging.debug("GREEDY SELECT state_index:%s action:%s reward:%s finished %s" %(state_index,action,reward,finished))
                 cnt+=1
                 node = new_node
                 state = next_vstate
@@ -372,9 +371,9 @@ class PMCTS(object):
         while not finished:
             # one less because we want next_state to be modeled
             if state_index < self.last_state_index_est-1:
-                #print("rollout state_index", state_index)
                 action, action_probs = self.get_rollout_action(state)
-                #self.env.set_state(state, state_index)
+                logging.debug("rollout --- state_index %s action %s"%( state_index,action))
+                self.env.set_state(state, state_index)
                 next_state_index = state_index + 1
                 vnext_road_map = self.road_map_ests[next_state_index]
                 next_vstate, reward, finished, _ = self.env.model_step(state, state_index, action, vnext_road_map)
@@ -383,7 +382,7 @@ class PMCTS(object):
                 # get robot location from previous step
                 self.add_robot_playout(state, state_index, reward)
 
-                if state[1].sum() < 1:
+                if next_vstate[1].sum() < 1:
                     print("rollout next_state has no sum!", state_index)
                 #    embed()
 
@@ -479,6 +478,8 @@ class PMCTS(object):
         print(true_goal, pred_goal)
         road_true_road_map[true_goal] = 0
         road_pred_road_map[pred_goal] = 0
+        road_true_road_map[road_true_road_map>0] = 1
+        road_pred_road_map[road_pred_road_map>0] = 1
 
         # measure error of 0th pixel of goal
         goal_err = 0.0
@@ -490,7 +491,21 @@ class PMCTS(object):
         false_neg = (road_true_road_map*np.abs(road_true_road_map-road_pred_road_map))
         false_neg[false_neg>0] = 1
         false_neg_count = false_neg.sum()
-        return false_neg_count, false_neg
+
+        print('max',road_true_road_map.max())
+        print('max',road_pred_road_map.max())
+        false_pos = road_pred_road_map*np.abs(road_true_road_map-road_pred_road_map)
+        false_neg = road_true_road_map*np.abs(road_true_road_map-road_pred_road_map)
+
+
+        error = np.ones_like(road_true_road_map)*254
+        error[false_pos>0] = 30
+        error[true_goal] = 160
+        error[pred_goal] = 130
+        error[false_neg>0] = 1
+        #print('false neg count', state_index, false_neg_count)
+
+        return false_neg_count, error
 
     def get_local_false_neg_counts(self, state, state_index):
         true_road_map = self.env.road_maps[state_index]
@@ -504,9 +519,6 @@ class PMCTS(object):
         lbx = min(rx+bs, xs)
         iby = max(ry-bs, 0)
         ibx = max(rx-bs, 0)
-
-        true_road_map = self.env.road_maps[state_index]
-        pred_road_map = self.road_map_ests[state_index]
         # predict free where there was car  # bad
         false_neg = (true_road_map*np.abs(true_road_map-pred_road_map))
         false_neg[false_neg>0] = 1
@@ -519,7 +531,7 @@ class PMCTS(object):
         #######################
         # determine how different the predicted was from true for the last state
         # pred_road should be all zero if no cars have been predicted
-        self.decision_time_road_map_ests[state_index] = state[1]
+        self.decision_time_road_map_ests[state_index] = deepcopy(state[1])
         false_neg_count, false_neg = self.get_false_neg_counts(state_index)
         local_false_neg_count = self.get_local_false_neg_counts(state, state_index)
 
@@ -581,6 +593,19 @@ class PMCTS(object):
                         print("found goal", i, gl)
                         gl = fgl
                     self.playout_goal_locs.append(gl)
+                    ccc = state_index+i
+                    #print(state_index, ccc)
+                    #false_neg_count, err = self.get_false_neg_counts(ccc)
+                    #f,ax = plt.subplots(1,3,figsize=(12,4))
+                    #ax[0].imshow(self.env.road_maps[ccc], origin='lower', vmin=0, vmax=max_pixel)
+                    #ax[0].set_title("Step %d: Oracle" %i)
+                    #ax[1].imshow(rm, origin='lower', vmin=0, vmax=max_pixel)
+                    #ax[1].set_title("%s Sample Model"%args.num_samples)
+                    #ax[2].imshow(err, origin='lower', cmap='Set1', vmin=0, vmax=max_pixel )  #cmap='Set1',
+                    #ax[2].set_title("Error")
+                    #plt.savefig("example_sample_%02d_step_%02d.png"%(args.num_samples,i))
+                    #plt.close()
+            #sys.exit()
             false_negs = []
             for xx, i in enumerate(rinds):
                 fnc,fn = self.get_false_neg_counts(i)
