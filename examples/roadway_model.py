@@ -991,9 +991,12 @@ if __name__ == "__main__":
             print('could not find checkpoint at {}'.format(default_pcnn_model_loadpath))
             sys.exit()
 
+    if args.model_type == 'vqvae_pcnn_model':
+       pcnn_name  = default_pcnn_model_loadpath.split('_e')[1].replace('.pkl', '')
+       vq_name  = default_vqvae_model_loadpath.split('_e')[1].replace('.pkl', '')
     else:
-       pcnn_name  = 'na.pkl'
-       vq_name = 'na.pkl'
+       pcnn_name  = 'na'
+       vq_name = 'na'
 
     goal_dis = args.max_goal_distance
     if args.debug:
@@ -1005,8 +1008,8 @@ if __name__ == "__main__":
                                     args.num_samples,
                                     args.prior_fn,
                                     args.model_type,
-                                    vq_name.replace('.pkl', ''),
-                                    pcnn_name.replace('.pkl', ''),
+                                    vq_name,
+                                    pcnn_name,
                                     args.num_playouts,
                                     args.rollout_steps,
                                     args.level, args.agent_max_speed, args.goal_speed,

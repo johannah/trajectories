@@ -179,7 +179,7 @@ if __name__ == '__main__':
     else:
         vmodel = AutoEncoder(nr_logistic_mix=nr_logistic_mix,num_clusters=num_clusters, encoder_output_size=args.num_z)
 
-    opt = torch.optim.Adam(vmodel.parameters(), lr=1e-3)
+    opt = torch.optim.Adam(vmodel.parameters(), lr=1e-4)
     train_loss_list = []
     test_loss_list = []
     epochs = []
