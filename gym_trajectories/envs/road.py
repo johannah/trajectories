@@ -645,12 +645,18 @@ if __name__ == '__main__':
     save_path = '%s_imgs_%sx%s/'%(dirname, ysize,xsize)
     rdn = np.random.RandomState(seed)
     level=6
-    env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level)
+    env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level, agent_max_speed= 0.5)
+    print(env.max_steps)
+    env = RoadEnv(random_state=rdn, ysize=ysize, xsize=xsize, level=level, agent_max_speed= 1.0)
+    print(env.max_steps)
+    sys.exit()
+
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     for e in range(num_episodes):
         print(e/float(num_episodes))
         env.reset()
+        embed()
         for t in range(env.road_maps.shape[0]):
             name = os.path.join(save_path,'seed_%05d_episode_%05d_frame_%05d.png'%(seed, e, t))
             imwrite(name,env.road_maps[t])

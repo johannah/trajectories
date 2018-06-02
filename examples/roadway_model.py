@@ -254,6 +254,45 @@ def get_none_model(state_index, est_inds, true_states, cond_states):
     # normalize data before putting into vqvae
     return true_states[est_inds]
 
+def get_false_neg_counts(true_road_map, pred_road_map):
+   # true_road_map = self.env.road_maps[state_index]
+   # pred_road_map = self.road_map_ests[state_index]
+    road_true_road_map = deepcopy(true_road_map)
+    road_pred_road_map = deepcopy(pred_road_map)
+    true_goal = np.where(true_road_map==max_pixel)
+    pred_goal = np.where(pred_road_map==max_pixel)
+    print(true_goal, pred_goal)
+    road_true_road_map[true_goal] = 0
+    road_pred_road_map[pred_goal] = 0
+    road_true_road_map[road_true_road_map>0] = 1
+    road_pred_road_map[road_pred_road_map>0] = 1
+
+    # measure error of 0th pixel of goal
+    goal_err = 0.0
+    if len(pred_goal[0]):
+        if len(true_goal[0]):
+            goal_err = np.abs(pred_goal[0][0]-true_goal[0][0])
+    # need to measure false positive of goal
+    # predict free where there was car  # bad
+    false_neg = (road_true_road_map*np.abs(road_true_road_map-road_pred_road_map))
+    false_neg[false_neg>0] = 1
+    false_neg_count = false_neg.sum()
+
+    print('max',road_true_road_map.max())
+    print('max',road_pred_road_map.max())
+    false_pos = road_pred_road_map*np.abs(road_true_road_map-road_pred_road_map)
+    false_neg = road_true_road_map*np.abs(road_true_road_map-road_pred_road_map)
+
+    error = np.ones_like(road_true_road_map)*254
+    error[false_pos>0] = 30
+    error[true_goal] = 160
+    error[pred_goal] = 130
+    error[false_neg>0] = 1
+    #print('false neg count', state_index, false_neg_count)
+
+    return false_neg_count, error
+
+
 
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
@@ -467,46 +506,6 @@ class PMCTS(object):
             act = self.random_state.choice(acts, p=probs)
         return act, act_probs
 
-
-    def get_false_neg_counts(self, state_index):
-        true_road_map = self.env.road_maps[state_index]
-        pred_road_map = self.road_map_ests[state_index]
-        road_true_road_map = deepcopy(true_road_map)
-        road_pred_road_map = deepcopy(pred_road_map)
-        true_goal = np.where(true_road_map==max_pixel)
-        pred_goal = np.where(pred_road_map==max_pixel)
-        print(true_goal, pred_goal)
-        road_true_road_map[true_goal] = 0
-        road_pred_road_map[pred_goal] = 0
-        road_true_road_map[road_true_road_map>0] = 1
-        road_pred_road_map[road_pred_road_map>0] = 1
-
-        # measure error of 0th pixel of goal
-        goal_err = 0.0
-        if len(pred_goal[0]):
-            if len(true_goal[0]):
-                goal_err = np.abs(pred_goal[0][0]-true_goal[0][0])
-        # need to measure false positive of goal
-        # predict free where there was car  # bad
-        false_neg = (road_true_road_map*np.abs(road_true_road_map-road_pred_road_map))
-        false_neg[false_neg>0] = 1
-        false_neg_count = false_neg.sum()
-
-        print('max',road_true_road_map.max())
-        print('max',road_pred_road_map.max())
-        false_pos = road_pred_road_map*np.abs(road_true_road_map-road_pred_road_map)
-        false_neg = road_true_road_map*np.abs(road_true_road_map-road_pred_road_map)
-
-
-        error = np.ones_like(road_true_road_map)*254
-        error[false_pos>0] = 30
-        error[true_goal] = 160
-        error[pred_goal] = 130
-        error[false_neg>0] = 1
-        #print('false neg count', state_index, false_neg_count)
-
-        return false_neg_count, error
-
     def get_local_false_neg_counts(self, state, state_index):
         true_road_map = self.env.road_maps[state_index]
         pred_road_map = self.road_map_ests[state_index]
@@ -532,7 +531,7 @@ class PMCTS(object):
         # determine how different the predicted was from true for the last state
         # pred_road should be all zero if no cars have been predicted
         self.decision_time_road_map_ests[state_index] = deepcopy(state[1])
-        false_neg_count, false_neg = self.get_false_neg_counts(state_index)
+        false_neg_count, false_neg = get_false_neg_counts(self.env.road_maps[state_index], self.road_map_ests[state_index])
         local_false_neg_count = self.get_local_false_neg_counts(state, state_index)
 
         print('false neg is', false_neg_count)
@@ -595,7 +594,9 @@ class PMCTS(object):
                     self.playout_goal_locs.append(gl)
                     ccc = state_index+i
                     #print(state_index, ccc)
-                    #false_neg_count, err = self.get_false_neg_counts(ccc)
+
+                    false_neg_count, err = get_false_neg_counts(self.env.road_maps[ccc], self.road_map_ests[ccc])
+                    # = get_false_neg_counts(ccc)
                     #f,ax = plt.subplots(1,3,figsize=(12,4))
                     #ax[0].imshow(self.env.road_maps[ccc], origin='lower', vmin=0, vmax=max_pixel)
                     #ax[0].set_title("Step %d: Oracle" %i)
@@ -608,7 +609,8 @@ class PMCTS(object):
             #sys.exit()
             false_negs = []
             for xx, i in enumerate(rinds):
-                fnc,fn = self.get_false_neg_counts(i)
+                #fnc,fn = self.get_false_neg_counts(i)
+                fnc,fn = get_false_neg_counts(self.env.road_maps[i], self.road_map_ests[i])
                 false_negs.append(fnc)
         except Exception, e:
             print(e)
@@ -642,19 +644,19 @@ class PMCTS(object):
         self.root = PTreeNode(None, prior_prob=1.0, name=(0,-1))
         self.tree_subs_ = []
 
-def get_error_frame(true_road, model_road):
-    err = np.zeros_like(true_road)
-    true_car = true_road>0
-    pred_car = model_road>0
-    true_free = true_road<1
-    pred_free = model_road<1
-    # predict car where there was free space
-    false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
-    err[false_pos>1] = 15 # false pos
-    # predict free where there was car  # bad
-    false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
-    err[false_neg>1] = 250 # false neg
-    return err
+#def get_error_frame(true_road, model_road):
+#    err = np.zeros_like(true_road)
+#    true_car = true_road>0
+#    pred_car = model_road>0
+#    true_free = true_road<1
+#    pred_free = model_road<1
+#    # predict car where there was free space
+#    false_pos = true_free.astype(np.int)+pred_car.astype(np.int)
+#    err[false_pos>1] = 15 # false pos
+#    # predict free where there was car  # bad
+#    false_neg = true_car.astype(np.int)+pred_free.astype(np.int)
+#    err[false_neg>1] = 250 # false neg
+#    return err
 
 
 
@@ -694,18 +696,24 @@ def plot_playout_scatters(true_env, base_path,  fname,
         model_state = decision_time_road_map_ests[state_index]
         vstate = ((ry,rx), model_state)
         model_frame = true_env.get_state_plot(vstate)
-        model_error = get_error_frame(deepcopy(true_env.road_maps[state_index]), deepcopy(model_road_maps[state_index]))
-        fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, state_index)
-        ft,axt=plt.subplots(1,3, figsize=(9,3))
-        axt[0].imshow(true_frame, origin='lower', vmin=0, vmax=255 )
-        axt[0].set_title("true step:{}/{}".format(ts,total_steps))
-        axt[1].imshow(model_frame, origin='lower', vmin=0, vmax=255 )
-        axt[1].set_title("{} model step:{}/{}".format(model_type, ts, total_steps))
-        axt[2].imshow(model_error, origin='lower', cmap=plt.cm.gray )
-        axt[2].set_title("model error".format(model_type))
-        ft.tight_layout()
-        plt.savefig(os.path.join(fast_path,fast_fname))
-        plt.close()
+
+        _, model_error = get_false_neg_counts(deepcopy(true_env.road_maps[state_index]), deepcopy(model_road_maps[state_index]))
+        #model_error = get_error_frame(
+        try:
+            fast_fname = 'fast_seed_%06d_step_%04d.png'%(seed, state_index)
+            ft,axt=plt.subplots(1,1, figsize=(3,3))
+            axt.imshow(true_frame, origin='lower', vmin=0, vmax=255 )
+            axt.set_title("true step:{}/{}".format(ts,total_steps))
+            #axt[1].imshow(model_frame, origin='lower', vmin=0, vmax=255 )
+            #axt[1].set_title("{} model step:{}/{}".format(model_type, ts, total_steps))
+            #axt[2].imshow(model_error, origin='lower', cmap='Set1')
+            #axt[2].set_title("model error".format(model_type))
+            ft.tight_layout()
+            plt.savefig(os.path.join(fast_path,fast_fname))
+            plt.close()
+        except Exception, e:
+            print(e, 'plot')
+            embed()
 
         # playtouts is size episode_length, y, x
         c = 0
@@ -719,17 +727,16 @@ def plot_playout_scatters(true_env, base_path,  fname,
 
                 true_playout_frame = true_road_maps[playout_state_index]+playout_robot_states[playout_ind]
                 est_playout_frame = playout_model_states[playout_ind]+playout_robot_states[playout_ind]
-                rollout_model_error = get_error_frame(deepcopy(true_playout_frame), deepcopy(est_playout_frame))
-
+                _, rollout_model_error  = get_false_neg_counts(deepcopy(true_playout_frame), deepcopy(est_playout_frame))
                 fname = 'seed_%06d_tstep_%04d_pstep_%04d.png'%(seed, state_index, playout_state_index)
                 f,ax=plt.subplots(1,4, figsize=(16,3.5))
                 ax[0].imshow(true_frame, origin='lower', vmin=0, vmax=255 )
-                ax[0].set_title("true state state_index:{}/{}".format(state_index,last_state_index))
+                ax[0].set_title("decision t: {}/{}".format(state_index,last_state_index))
                 ax[1].imshow(true_playout_frame, origin='lower', vmin=0, vmax=255 )
-                ax[1].set_title("true rollout {} step:{}/{}".format(playout_state_index, playout_ind, num_playout_steps ))
+                ax[1].set_title("oracle rollout {} step:{}/{}".format(playout_state_index, playout_ind, num_playout_steps ))
                 ax[2].imshow(est_playout_frame, origin='lower', vmin=0, vmax=255 )
-                ax[2].set_title("{} model {} step:{}/{}".format(model_type, playout_state_index, playout_ind,num_playout_steps ))
-                ax[3].imshow(rollout_model_error , origin='lower', cmap=plt.cm.gray)
+                ax[2].set_title("model rollout {} step:{}/{}".format(playout_state_index, playout_ind, num_playout_steps ))
+                ax[3].imshow(rollout_model_error , origin='lower', cmap='Set1')
                 ax[3].set_title("error in model")
                 f.tight_layout()
                 plt.savefig(os.path.join(fpath,fname))
@@ -745,7 +752,7 @@ def plot_playout_scatters(true_env, base_path,  fname,
     sof.close()
     print("FINISHED WRITING TO", os.path.split(sh_path)[0])
 
-    fast_gif_path = 'fast_seed'.format(seed)
+    fast_gif_path = 'fast_seed_{}.gif'.format(seed)
     cmd = 'convert -delay 1/30 *.png %s\n'%(fast_gif_path)
     fast_sh_path = os.path.join(fast_path, 'run_fast_seed_{}.sh'.format(seed))
     of = open(fast_sh_path, 'w')

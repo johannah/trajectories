@@ -22,6 +22,7 @@ def get_steps_won(pdict):
 
     seeds_alive = np.array([p for p in seeds if pdict[p]['reward'] >= 0])
     steps_alive = [len(pdict[seed]['actions']) for seed in seeds_alive]
+    print(zip(seeds_alive, steps_alive))
     if not len(steps_alive):
         steps_alive = [10000.0]
 
