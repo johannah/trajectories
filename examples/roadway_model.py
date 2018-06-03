@@ -891,7 +891,8 @@ if __name__ == "__main__":
     # [10, 12, 13, 12, 19, 27, 30, 33, 36, 38]
     # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
     # train loss of 1.09, test loss 1.25 epoch 10
-    pcnn_static_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
+
+    #pcnn_static_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
     # false negs over 10 steps for seed 35
     # [13, 13, 16, 13, 23, 29, 31, 36, 35, 37]
     # [12, 12, 15, 16, 23, 29, 31, 33, 35, 38]
@@ -901,8 +902,9 @@ if __name__ == "__main__":
     vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
-    pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
+    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
     #pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
+    pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
@@ -992,11 +994,11 @@ if __name__ == "__main__":
             sys.exit()
 
     if args.model_type == 'vqvae_pcnn_model':
-       pcnn_name  = default_pcnn_model_loadpath.split('_e')[1].replace('.pkl', '')
-       vq_name  = default_vqvae_model_loadpath.split('_e')[1].replace('.pkl', '')
+       upcnn_name  = default_pcnn_model_loadpath.split('e00')[1].replace('.pkl', '')
+       uvq_name  = default_vqvae_model_loadpath.split('e00')[1].replace('.pkl', '')
     else:
-       pcnn_name  = 'na'
-       vq_name = 'na'
+       upcnn_name  = 'na'
+       uvq_name = 'na'
 
     goal_dis = args.max_goal_distance
     if args.debug:
@@ -1008,8 +1010,8 @@ if __name__ == "__main__":
                                     args.num_samples,
                                     args.prior_fn,
                                     args.model_type,
-                                    vq_name,
-                                    pcnn_name,
+                                    uvq_name,
+                                    upcnn_name,
                                     args.num_playouts,
                                     args.rollout_steps,
                                     args.level, args.agent_max_speed, args.goal_speed,
