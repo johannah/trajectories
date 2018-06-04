@@ -904,7 +904,6 @@ if __name__ == "__main__":
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
     #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
-    #pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
     pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
 
     parser = argparse.ArgumentParser()
