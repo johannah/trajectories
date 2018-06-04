@@ -108,7 +108,8 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     best_angles = np.ones(len(env.action_space), dtype=np.float)
     top = len(env.action_space)/2
     best_angles[:top] = 2.0
-    best_angles[:2] = 2.5
+    best_angles[:2] = 3.0
+    best_angles[0] = 4.0
     #best_angles[1] = 2.5
     #best_angles[0] = 3.0
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
@@ -278,8 +279,8 @@ def get_false_neg_counts(true_road_map, pred_road_map):
     false_neg[false_neg>0] = 1
     false_neg_count = false_neg.sum()
 
-    print('max',road_true_road_map.max())
-    print('max',road_pred_road_map.max())
+    #print('max',road_true_road_map.max())
+    #print('max',road_pred_road_map.max())
     false_pos = road_pred_road_map*np.abs(road_true_road_map-road_pred_road_map)
     false_neg = road_true_road_map*np.abs(road_true_road_map-road_pred_road_map)
 
@@ -1006,7 +1007,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.INFO)
 
-    fname = 'sample_%s_gall_results_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
+    fname = 'sample_%s_stepwin_prior_%s_model_%s_%s_%s_rollouts_%s_length_%s_level_%s_as_%01.02f_gs_%01.02f_gd_%03d.pkl' %(
                                     args.num_samples,
                                     args.prior_fn,
                                     args.model_type,
