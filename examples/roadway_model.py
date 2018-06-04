@@ -581,7 +581,7 @@ class PMCTS(object):
                 self.road_map_ests[rinds] = ests
                 est_inds = range(state_index,est_to)
                 #print('this_rollout', est_inds) #should be rollout_length +1 for the current_state
-                self.playout_road_maps = self.road_map_ests[est_inds]
+                self.playout_road_maps = self.road_map_ests[state_indexes:est_to]
                 self.playout_goal_locs = []
                 # start assuming it is zero
                 gl = [[self.env.ysize//2], [self.env.xsize//2]]
