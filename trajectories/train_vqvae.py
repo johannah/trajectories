@@ -9,8 +9,6 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from vqvae import AutoEncoder
-#from vqvae_bigger import AutoEncoder, to_scalar
-#from vqvae_small import AutoEncoder, to_scalar
 from torch.autograd import Variable
 import numpy as np
 from torchvision.utils import save_image
