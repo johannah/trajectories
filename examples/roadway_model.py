@@ -1,5 +1,6 @@
 # Author: Kyle Kastner & Johanna Hansen
 # License: BSD 3-Clause
+# we read the following when developing this code:
 # http://mcts.ai/pubs/mcts-survey-master.pdf
 # https://github.com/junxiaosong/AlphaZero_Gomoku
 
@@ -7,7 +8,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import math
-from gym_trajectories.envs.road import RoadEnv, max_pixel, min_pixel
 import time
 import numpy as np
 from IPython import embed
@@ -23,11 +23,11 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 
-from gym_trajectories.envs.vqvae import AutoEncoder
-from gym_trajectories.envs.pixel_cnn import GatedPixelCNN
-
-from gym_trajectories.envs.utils import discretized_mix_logistic_loss, get_cuts, to_scalar
-from gym_trajectories.envs.utils import sample_from_discretized_mix_logistic
+from trajectories.road import RoadEnv, max_pixel, min_pixel
+from trajectories.vqvae import AutoEncoder
+from trajectories.pixel_cnn import GatedPixelCNN
+from trajectories.utils import discretized_mix_logistic_loss, get_cuts, to_scalar
+from trajectories.utils import sample_from_discretized_mix_logistic
 
 
 def softmax(x):
@@ -110,25 +110,16 @@ def goal_node_probs_fn(state, state_index, env, goal_loc):
     best_angles[:top] = 2.0
     best_angles[:2] = 3.0
     best_angles[0] = 4.0
-    #best_angles[1] = 2.5
-    #best_angles[0] = 3.0
     best_angles = np.round(best_angles/float(best_angles.sum()), 2)
 
     unsorted_actions_and_probs = list(zip(best_actions, best_angles))
     actions_and_probs = sorted(unsorted_actions_and_probs, key=lambda tup: tup[0])
-    #print("Bearing is", bearing)
-    #print("GOAL")
-    #print(gy, gx)
-    #print("best action is", best_angles[0], best_angles[0])
-    #print(zip(env.angles, actions_and_probs))
     return actions_and_probs
 
 def equal_node_probs_fn(state, state_index, env, gm):
     probs = np.ones(len(env.action_space))/float(len(env.action_space))
     actions_and_probs = list(zip(env.action_space, probs))
     return actions_and_probs
-
-#def get_min_goal_pixel(frame):
 
 def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     rollout_length = len(est_inds)
@@ -169,7 +160,6 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
     z_q_x = z_q_x.view(all_pred_latents.shape[0],6,6,-1).permute(0,3,1,2)
     x_d = vmodel.decoder(z_q_x)
 
-    #x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     x_tilde = sample_from_discretized_mix_logistic(x_d, nr_logistic_mix, only_mean=True)
     proad_states = (((np.array(x_tilde.cpu().data)+1.0)/2.0)*float(max_pixel-min_pixel)) + min_pixel
     goal_y_ests = {}
@@ -256,13 +246,12 @@ def get_none_model(state_index, est_inds, true_states, cond_states):
     return true_states[est_inds]
 
 def get_false_neg_counts(true_road_map, pred_road_map):
-   # true_road_map = self.env.road_maps[state_index]
-   # pred_road_map = self.road_map_ests[state_index]
+    # true_road_map = self.env.road_maps[state_index]
+    # pred_road_map = self.road_map_ests[state_index]
     road_true_road_map = deepcopy(true_road_map)
     road_pred_road_map = deepcopy(pred_road_map)
     true_goal = np.where(true_road_map==max_pixel)
     pred_goal = np.where(pred_road_map==max_pixel)
-    print(true_goal, pred_goal)
     road_true_road_map[true_goal] = 0
     road_pred_road_map[pred_goal] = 0
     road_true_road_map[road_true_road_map>0] = 1
@@ -279,18 +268,15 @@ def get_false_neg_counts(true_road_map, pred_road_map):
     false_neg[false_neg>0] = 1
     false_neg_count = false_neg.sum()
 
-    #print('max',road_true_road_map.max())
-    #print('max',road_pred_road_map.max())
     false_pos = road_pred_road_map*np.abs(road_true_road_map-road_pred_road_map)
     false_neg = road_true_road_map*np.abs(road_true_road_map-road_pred_road_map)
 
     error = np.ones_like(road_true_road_map)*254
+    # add colors for error plottnig
     error[false_pos>0] = 30
     error[true_goal] = 160
     error[pred_goal] = 130
     error[false_neg>0] = 1
-    #print('false neg count', state_index, false_neg_count)
-
     return false_neg_count, error
 
 
@@ -298,7 +284,7 @@ def get_false_neg_counts(true_road_map, pred_road_map):
 class PMCTS(object):
     def __init__(self, env, random_state, node_probs_fn, c_puct=1.4,
             n_playouts=1000, rollout_length=20, estimator=get_vqvae_pcnn_model,
-            history_size=4):
+            history_size=4, warn_tree_size=1000):
         # use estimator for planning, if false, use env
         # make sure it does a full rollout the first time
         self.full_rollouts_every = 1
@@ -310,11 +296,12 @@ class PMCTS(object):
         self.c_puct = c_puct
         self.n_playouts = n_playouts
         self.tree_subs_ = []
-        self.warn_at_tree_size = 1000
+        self.warn_at_tree_size = warn_tree_size
         self.tree_subs_ = []
         self.step = 0
         self.rollout_length = rollout_length
         self.nodes_seen = {}
+        # hack to get different estimators
         self.estimator = eval('get_'+estimator) # get_vqvae_pcnn_model
         self.road_map_ests = np.zeros_like(self.env.road_maps)
         self.history_size = history_size
@@ -424,9 +411,6 @@ class PMCTS(object):
 
                 if next_vstate[1].sum() < 1:
                     print("rollout next_state has no sum!", state_index)
-                #    embed()
-
-
                 # true and vq state
                 c+=1
                 if finished:

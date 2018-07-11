@@ -1,11 +1,9 @@
+# hacky file for printing data
 import numpy as np
 import matplotlib.pyplot as plt
 import os, sys
 from glob import glob
 from IPython import embed
-import pickle
-
-
 
 def get_steps_won(pdict):
     key = 'reward'
@@ -38,20 +36,6 @@ def get_steps_won(pdict):
     print("MEAN STEPS ALIVE {}".format(round(np.mean(steps_alive),3)))
     print("STD STEPS ALIVE {}".format(round(np.std(steps_alive),3)))
 
-
-    #return {'mean steps':np.mean(steps), 'median steps':np.median(steps),
-    #        'max steps':np.max(steps), 'min_steps':np.min(steps),
-    #        'var_steps':np.std(steps), 'num_tout':len(seeds_tout),
-    #        'mean times':mean_times,  'var times':np.std(tms),
-    #        'num_won':len(seeds_won),
-    #        'num_died':len(seeds_died),
-    #        'num_timeout':len(seeds_won)-len(seeds_lost),
-    #         #'seed steps sorted':steps_sorted,
-    #        'seeds_lost':seeds_lost}
-
-
-
-
 def get_num_games_won(pdict):
     key = 'reward'
     vals = np.array([pdict[p][key] for p in pdict.keys() if type(p) == int])
@@ -79,9 +63,7 @@ def get_avg_time(pdict):
     key = 'decision_ts'
     vals = [np.mean(pdict[p][key]) for p in pdict.keys() if type(p) == int]
     r = np.mean(vals)
-    #print(key, r)
     return {key:r}
-
 
 files = sorted(glob('../../results/*vqvae*pkl'))
 loaded = [(f,pickle.load(open(f,'r'))) for f in files ]
@@ -94,16 +76,9 @@ for (f,l) in loaded:
     agent_speed = fb.split('as_')[1].split('_gs')[0]
     print('agent_speed %s - model %s - length %s - num_samples %s'%(agent_speed,model,length,num_samples))
     get_steps_won(l)
-    print(get_avg_time(l))
-    #print('35 length', len(l[35]['actions']))
-    #print(get_avg_reward(l))
-    #print(get_num_games_won(l))
-    #print(f,get_reward_won_games(l))
     print('------------------------------')
 
 embed()
-#for (f,l) in loaded:
-#    print(f, get_avg_time(l))
 
 
 
