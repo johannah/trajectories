@@ -22,17 +22,19 @@ To train the environment model, complete teh following steps:
 
 ### Example MCTS agent using our forward model for planning 
 
-VQ-VAE+PCNN model with 5 samples and 10-step rollout with agent 2X speed of goal
+This demonstrates a MCTS agent using our VQ-VAE+PCNN model with 5 samples for planning 10 time steps ahead. In this example, the agent is twice the speed of the moving goal.
 
 This image depicts the true observed state at each time step with the corresponding action.  Obstacles are denoted in cyan, agent in green, and the goal in yellow.
 
 ![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-fast.gif)
 
-The above agent with MCTS rollouts in VQ-VAE+PCNN model.
 
-The first column is observed state, second column is oracle rollout for human reference, third column is model rollout. Obstacles are denoted in cyan, agent in green, and the goal in yellow. The fourth column describes model error. Red pixels are false negatives (predicted free space where there is an obstacle) and blue pixels indicate false positives (predicted obstacle where there was free space). In the error plot, the predicted goal is plotted in orange over the true yellow goal.
+The below image shows the same episode with the future model depicted. The first column is the observed state, the second column is the oracle rollout for human reference and the third column is the model rollout that the agent used. 
+The fourth column describes model error where red pixels are false negatives (predicted free space where there is an obstacle) and blue pixels indicate false positives (predicted obstacle where there was free space). In the error plot, the predicted goal is plotted in orange over the true yellow goal.
 
 ![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-rollout.gif)
+
+More examples can be found at [https://imgur.com/a/6DJbrB1](https://imgur.com/a/6DJbrB1)
 
 ---
 # Below we show some deomstrations from zero-step models with a static goal. 
