@@ -32,14 +32,16 @@ The above agent with MCTS rollouts in VQ-VAE+PCNN model.
 
 The first column is observed state, second column is oracle rollout for human reference, third column is model rollout. Obstacles are denoted in cyan, agent in green, and the goal in yellow. The fourth column describes model error. Red pixels are false negatives (predicted free space where there is an obstacle) and blue pixels indicate false positives (predicted obstacle where there was free space). In the error plot, the predicted goal is plotted in orange over the true yellow goal.
 
-![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-playout.gif)
+![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-rollout.gif)
 
 ---
 # Below we show some deomstrations from zero-step models with a static goal. 
-Here we show a zero-step ahead rollouts using VQ-VAE. 
+
+Below is a demonstration of the reconstruction from our VQ-VAE model:
+
 ![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/true_step_seed_930_vqvae.gif)
 
-We also learn a model of the environment using a VAE and perform zero-step ahead rollouts.  
+Below is a demonstration of the reconstruction from our VAE model:
 
 ![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/true_step_seed_930_vae.gif)
 
