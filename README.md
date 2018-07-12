@@ -1,10 +1,10 @@
 # Planning with a conditional generative model 
 
+In this work, we learn a dynamics model of an agent-independent environment and use this model for forward planning with MCTS. 
+
 Please refer to our [paper](https://github.com/johannah/trajectories/blob/master/icml18-vqvae-model-camera-ready.pdf) presented at the PGMRL Workshop at ICML 2018 for implementation details.
 
-We learn a dynaics model of an agent-independent environment and use this model for forward planning with MCTS. 
-
-To train the environment model, complete teh following steps: 
+To train the environment model, complete the following steps: 
 
 1) Generate a training set in pixel-space of the environment: 
 [road.py](https://github.com/johannah/trajectories/blob/master/trajectories/road.py).
@@ -37,7 +37,7 @@ The fourth column describes model error where red pixels are false negatives (pr
 More examples can be found at [https://imgur.com/a/6DJbrB1](https://imgur.com/a/6DJbrB1)
 
 ---
-# Below we show some deomstrations from zero-step models with a static goal. 
+# Below we demonstrate reconstruction error 
 
 Below is a demonstration of the reconstruction from our VQ-VAE model:
 
