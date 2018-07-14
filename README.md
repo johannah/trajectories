@@ -1,6 +1,7 @@
-# Chasing a goal in a dangerous environment with a conditional generative model of the environment
+# Chasing a goal in a dangerous world 
+### Planning with conditional generative models of the environment
 
-This gif shows our MCTS agent (green) trying to catch the yellow goal while avoiding the cyan obstacles all using a learned dynamics model to imagine the future. 
+This gif shows our MCTS agent (green) trying to catch the yellow goal while avoiding the cyan obstacles. A dynamics model is learned from  latent representations of the environment and used to plan agent actions. 
 
 ![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-fast.gif)
 
