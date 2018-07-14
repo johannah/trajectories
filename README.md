@@ -1,4 +1,4 @@
-# Planning with a conditional generative model 
+# Planning with conditional generative models 
 
 In this work, we learn a dynamics model of an agent-independent environment and use this model for forward planning with MCTS. 
 
