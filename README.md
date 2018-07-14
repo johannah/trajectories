@@ -1,6 +1,18 @@
-# Planning with conditional generative models 
+# Chasing a goal in a dangerous environment with a conditional generative model of the environment
 
-In this work, we learn a dynamics model of an agent-independent environment and use this model for forward planning with MCTS. 
+This gif shows our MCTS agent (green) trying to catch the yellow goal while avoiding the cyan obstacles all using a learned dynamics model to imagine the future. 
+
+![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-fast.gif)
+
+The below image shows the same episode as above with the imagined future model depicted. The first column is the observed state, the second column is the oracle rollout (for human reference only) and the third column is the model rollout that the agent used for planning. 
+The fourth column describes model error where red pixels are false negatives (predicted free space where there is an obstacle) and blue pixels indicate false positives (predicted obstacle where there was free space). In the error plot, the predicted goal is plotted in orange over the true yellow goal.
+
+![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-rollout.gif)
+
+More agent examples can be found at [https://imgur.com/a/6DJbrB1](https://imgur.com/a/6DJbrB1)
+
+--- 
+### Implementation 
 
 Please refer to our [paper](https://github.com/johannah/trajectories/blob/master/icml18-vqvae-model-camera-ready.pdf) presented at the PGMRL Workshop at ICML 2018 for implementation details.
 
@@ -17,24 +29,6 @@ To train the environment model, complete the following steps:
 
 4) Run MCTS using the learned model: 
 [roadway_model.py](https://github.com/johannah/trajectories/blob/master/examples/roadway_model.py).
-
---- 
-
-### Example MCTS agent using our forward model for planning 
-
-This demonstrates a MCTS agent using our VQ-VAE+PCNN model with 5 samples for planning 10 time steps ahead. In this example, the agent is twice the speed of the moving goal.
-
-This image depicts the true observed state at each time step with the corresponding action.  Obstacles are denoted in cyan, agent in green, and the goal in yellow.
-
-![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-fast.gif)
-
-
-The below image shows the same episode with the future model depicted. The first column is the observed state, the second column is the oracle rollout for human reference and the third column is the model rollout that the agent used. 
-The fourth column describes model error where red pixels are false negatives (predicted free space where there is an obstacle) and blue pixels indicate false positives (predicted obstacle where there was free space). In the error plot, the predicted goal is plotted in orange over the true yellow goal.
-
-![alt_text](https://github.com/johannah/trajectories/blob/master/imgs/10-step-rollout.gif)
-
-More examples can be found at [https://imgur.com/a/6DJbrB1](https://imgur.com/a/6DJbrB1)
 
 ---
 # Below we demonstrate reconstruction error 
