@@ -235,8 +235,7 @@ def get_vqvae_pcnn_model(state_index, est_inds, true_states, cond_states):
 
 def get_zero_model(state_index, est_inds, true_states, cond_states):
     rollout_length = len(est_inds)
-    print("starting none %s predictions" %rollout_length)
-    # normalize data before putting into vqvae
+    print("starting zero %s predictions" %rollout_length)
     return np.zeros_like(true_states[est_inds])
 
 def get_none_model(state_index, est_inds, true_states, cond_states):
@@ -857,63 +856,38 @@ def run_trace(fname, seed=3432, ysize=48, xsize=48, level=6,
 
 if __name__ == "__main__":
     import argparse
-    # this seems to work well
-    #python roadway_pmcts.py --seed 45 -r 100  -p 100 -l 6
-
     default_base_savedir = '../../models'
     savedir = '../../results'
     if not os.path.exists(savedir):
         os.makedirs(savedir)
-
-    # false negs over 10 steps  for seed 35 [17, 21, 26, 25, 32, 40, 38, 38, 39, 41]
-    #vq_name = 'vqvae4layer_base_k512_z32_dse00025.pkl'
-    # train loss .034, test_loss sum .0355 epoch 51
     vq_static_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
-    # train loss of .39, epoch 31
     #pcnn_name = 'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl'
-    # false negs over 10 steps for seed 35
-    # [11, 13, 14, 12, 19, 27, 30, 35, 38, 37]
-    # [10, 12, 13, 12, 19, 27, 30, 33, 36, 38]
-    # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
-    # train loss of 1.09, test loss 1.25 epoch 10
-
     #pcnn_static_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
-    # false negs over 10 steps for seed 35
-    # [13, 13, 16, 13, 23, 29, 31, 36, 35, 37]
-    # [12, 12, 15, 16, 23, 29, 31, 33, 35, 38]
-    # [15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
-    # [27, 23, 26, 27, 30, 29, 32, 32, 26, 26]
-    #pcnn_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00026.pkl'
     vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
-    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00004.pkl'
-    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
-    #pcnn_moving_name = 'mrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00008.pkl'
     pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with')
-    parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num traces to run')
+    parser.add_argument('-s', '--seed', type=int, default=35, help='random seed to start with (will be incremented each episode)')
+    parser.add_argument('-e', '--num_episodes', type=int, default=100, help='num episodes to run')
     parser.add_argument('-y', '--ysize', type=int, default=48, help='pixel size of game in y direction')
     parser.add_argument('-x', '--xsize', type=int, default=48, help='pixel size of game in x direction')
     parser.add_argument('-g', '--max_goal_distance', type=int, default=1000, help='limit goal distance to within this many pixels of the agent')
-    parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no cars, level 10-->nearly all cars')
+    parser.add_argument('-l', '--level', type=int, default=6, help='game playout level. level 0--> no obstacles, level 10-->nearly all obstacles')
     parser.add_argument('-p', '--num_playouts', type=int, default=200, help='number of playouts for each step')
-    parser.add_argument('-r', '--rollout_steps', type=int, default=10, help='limit number of steps taken be random rollout')
-    #parser.add_argument('-vq', '--vqvae_model_loadpath', type=str, default=default_vqvae_model_loadpath)
-    #parser.add_argument('-pcnn', '--pcnn_model_loadpath', type=str, default=default_pcnn_model_loadpath)
-    parser.add_argument('-c', '--cuda', action='store_true', default=False)
+    parser.add_argument('-r', '--rollout_steps', type=int, default=10, help='how far in the future to generate model and lookahead for planning')
+    parser.add_argument('-c', '--cuda', action='store_true', default=True, help='use gpu for forward model')
     parser.add_argument('-d', '--debug', action='store_true', default=False, help='print debug info')
-    parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model')
-    parser.add_argument('-sams', '--num_samples', type=int , default=5)
-    parser.add_argument('-gs', '--goal_speed', type=float , default=0.5)
-    parser.add_argument('-as', '--agent_max_speed', type=float , default=1.0)
+    parser.add_argument('-t', '--model_type', type=str, default='vqvae_pcnn_model', help='which model to use for forward planning. options are vqvae_pcnn_model (default - learned model), zero_model (all zeros), or none_model (oracle)')
+    parser.add_argument('-sams', '--num_samples', type=int , default=5, help='number of samples to take from each vqvae_pcnn_model prediction')
+    parser.add_argument('-gs', '--goal_speed', type=float , default=0.5, help='true speed of the goal in pixels/timestep. this should match the speed at which the model wash trained.')
+    parser.add_argument('-as', '--agent_max_speed', type=float , default=1.0, help='speed of the agent relative to the goal. 1.0 means the agent is the same speed as the goal. 0.5 means the agent is half of the speed of the goal')
     parser.add_argument('--save_pkl', action='store_false', default=True)
-    parser.add_argument('--render', action='store_true', default=False)
+    parser.add_argument('--render', action='store_true', default=False, help='display matplotlib plot as the agent is playing')
     parser.add_argument('--do_plot_error', action='store_false', default=True)
-    parser.add_argument('--plot_playouts', action='store_true', default=False)
-    parser.add_argument('--save_plots', action='store_true', default=False)
-    parser.add_argument('-gap', '--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step')
-    parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='options are goal or equal')
+    parser.add_argument('--plot_playouts', action='store_true', default=False, help='save plots for the individual forward planning steps for each timestep')
+    parser.add_argument('--save_plots', action='store_true', default=False, help='save plots for agent steps at each time step')
+    parser.add_argument('-gap', '--plot_playout_gap', type=int, default=3, help='gap between plot playouts for each step (this reduces overhead of visualizing playouts)')
+    parser.add_argument('-f', '--prior_fn', type=str, default='goal', help='bias the rollouts towards a prior. options are "goal" or "equal"')
 
     args = parser.parse_args()
     if args.goal_speed == 0.5:
@@ -977,12 +951,11 @@ if __name__ == "__main__":
             print('could not find checkpoint at {}'.format(default_pcnn_model_loadpath))
             sys.exit()
 
-    if args.model_type == 'vqvae_pcnn_model':
-       upcnn_name  = default_pcnn_model_loadpath.split('e00')[1].replace('.pkl', '')
-       uvq_name  = default_vqvae_model_loadpath.split('e00')[1].replace('.pkl', '')
+        upcnn_name  = default_pcnn_model_loadpath.split('e00')[1].replace('.pkl', '')
+        uvq_name  = default_vqvae_model_loadpath.split('e00')[1].replace('.pkl', '')
     else:
-       upcnn_name  = 'na'
-       uvq_name = 'na'
+        upcnn_name  = 'na'
+        uvq_name = 'na'
 
     goal_dis = args.max_goal_distance
     if args.debug:
