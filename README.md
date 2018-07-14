@@ -17,6 +17,13 @@ More agent examples can be found at [https://imgur.com/a/6DJbrB1](https://imgur.
 
 Please refer to our [paper](https://github.com/johannah/trajectories/blob/master/icml18-vqvae-model-camera-ready.pdf) presented at the PGMRL Workshop at ICML 2018 for implementation details.
 
+To run our example:
+1) Download the trained models into a '../models' directory:
+[pretrained-models](https://drive.google.com/open?id=1Pa3b8Syo6FQcVIZ4IQLJ7MRU-i0h_-rU)
+ 
+2) Run the agent:
+[roadway_model.py](https://github.com/johannah/trajectories/blob/master/examles/road_model.py)
+
 To train the environment model, complete the following steps: 
 
 1) Generate a training set in pixel-space of the environment: 
@@ -28,7 +35,7 @@ To train the environment model, complete the following steps:
 3) Train a PixelCNN on the latent space:
 [train_pixel_cnn.py](https://github.com/johannah/trajectories/blob/master/trajectories/train_pixel_cnn.py).
 
-4) Run MCTS using the learned model: 
+4) Update the file paths for the agent and run the agent: 
 [roadway_model.py](https://github.com/johannah/trajectories/blob/master/examples/roadway_model.py).
 
 ---

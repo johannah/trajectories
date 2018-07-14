@@ -860,8 +860,7 @@ if __name__ == "__main__":
     savedir = '../../results'
     if not os.path.exists(savedir):
         os.makedirs(savedir)
-    vq_static_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
-    #pcnn_name = 'rpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00031.pkl'
+    #vq_static_name = 'vqvae4layer_base_k512_z32_dse00051.pkl'
     #pcnn_static_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00010.pkl'
     vq_moving_name = 'vqvae4layer_base_k512_z32_dse00064.pkl'
     pcnn_moving_name = 'nrpcnn_id512_d256_l15_nc4_cs1024_base_k512_z32e00003.pkl'
