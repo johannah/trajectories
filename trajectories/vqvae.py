@@ -8,8 +8,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from copy import deepcopy
 from IPython import embed
-#from utils import discretized_mix_logistic_loss
-#from utils import sample_from_discretized_mix_logistic
 class AutoEncoder(nn.Module):
     def __init__(self, num_clusters=512, encoder_output_size=32, nr_logistic_mix=10):
         super(AutoEncoder, self).__init__()
@@ -115,47 +113,4 @@ class AutoEncoder(nn.Module):
         # put quantized data through decoder
         x_tilde = self.decoder(z_q_x)
         return x_tilde, z_e_x, z_q_x, latents
-
-if __name__ == '__main__':
-    use_cuda = False
-    ysize, xsize = 40,40
-    if use_cuda:
-        model = AutoEncoder().cuda()
-        x = Variable(torch.randn(32,1,ysize,xsize).cuda(), requires_grad=False)
-    else:
-        model = AutoEncoder()
-        x = Variable(torch.randn(32,1,ysize,xsize), requires_grad=False)
-
-    model.zero_grad()
-    x_tilde, z_e_x, z_q_x = model(x)
-    z_q_x.retain_grad()
-
-    # losses
-
-    #loss1 = F.binary_cross_entropy(x_tilde, x)
-    loss1 = discretized_mix_logistic_loss(x_tilde,2*x-1)
-    loss1.backward(retain_graph=True)
-    # make sure that encoder is not receiving gradients - only train decoder
-    assert model.encoder[-2].bias.grad is None
-    model.embedding.zero_grad()
-    # straight-thru trick to skip discrete zs
-    z_e_x.backward(z_q_x.grad, retain_graph=True)
-    # make sure embedding has no gradient
-    assert model.embedding.weight.grad.sum().data.cpu().numpy()[0] == 0
-    bias = deepcopy(model.encoder[-2].bias.grad.data)
-
-    # detach is like stop gradient
-    loss2 = F.mse_loss(z_q_x, z_e_x.detach())
-    loss2.backward(retain_graph=True)
-    emb = deepcopy(model.embedding.weight.grad.data)
-    assert (bias == model.encoder[-2].bias.grad.data).all() is True
-
-    # commitment loss
-    Beta = 0.25
-    loss3 = Beta*F.mse_loss(z_e_x, z_q_x.detach())
-    loss3.backward()
-    assert (emb == model.embedding.weight.grad.data).all() is True
-
-    print(loss1, loss2, loss3)
-
 
